@@ -87,6 +87,12 @@ export class InMemoryStore implements Store {
     return latest;
   }
 
+  async getRunBranchCheckpoints(runId: string, branchId: string): Promise<Checkpoint[]> {
+    return [...this.checkpoints.values()].filter(
+      (cp) => cp.runId === runId && cp.branchId === branchId,
+    );
+  }
+
   // -- policy decisions --
   async setPolicyDecision(pde: PolicyDecisionEvent): Promise<void> {
     this.policyDecisions.set(pde.eventId, pde);

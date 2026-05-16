@@ -220,6 +220,14 @@ export class PostgresStore implements Store {
     return m;
   }
 
+  async getRunBranchCheckpoints(runId: string, branchId: string): Promise<Checkpoint[]> {
+    const rows = await this.db
+      .select()
+      .from(s.checkpoints)
+      .where(and(eq(s.checkpoints.runId, runId), eq(s.checkpoints.branchId, branchId)));
+    return rows.map((r) => this.toCheckpoint(r));
+  }
+
   async setCheckpoint(cp: Checkpoint): Promise<void> {
     await this.db
       .insert(s.checkpoints)

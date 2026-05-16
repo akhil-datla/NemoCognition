@@ -60,6 +60,33 @@ export function NodeInspector({ node, policyEvent, onClose, onRecoveryStarted }:
   const toolOutput = isToolCall ? payload.output : undefined;
   const toolName = isToolCall ? (payload.toolName as string | undefined) : undefined;
 
+  // The Codebase tab is only useful when the agent actually modified files
+  // at this checkpoint (relative to the previous checkpoint on the same
+  // branch). Pre-check via the tree endpoint's diff so we can hide the tab
+  // for checkpoints that contain no agent-authored changes — every
+  // snapshot includes OpenClaw housekeeping files we don't want to surface.
+  const [codebaseHasChanges, setCodebaseHasChanges] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (!node.checkpointId) {
+      setCodebaseHasChanges(false);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/checkpoints/${node.checkpointId}/tree?diff=true`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((json) => {
+        if (cancelled) return;
+        const hasChanges = Boolean(json?.diff?.hasChanges ?? (json?.fileCount ?? 0) > 0);
+        setCodebaseHasChanges(hasChanges);
+      })
+      .catch(() => {
+        if (!cancelled) setCodebaseHasChanges(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [node.checkpointId]);
+
   const tabs = useMemo<{ id: Tab; label: string }[]>(() => {
     const out: { id: Tab; label: string }[] = [{ id: "summary", label: "Summary" }];
     if (isModelCall && messages?.length) out.push({ id: "prompt", label: "Prompt" });
@@ -67,10 +94,12 @@ export function NodeInspector({ node, policyEvent, onClose, onRecoveryStarted }:
     if (isToolCall) out.push({ id: "tool_io", label: "Tool I/O" });
     if (policyEvent) out.push({ id: "policy", label: "Policy" });
     if (policyEvent) out.push({ id: "audit", label: "Audit" });
-    if (node.checkpointId) out.push({ id: "codebase", label: "Codebase" });
+    if (node.checkpointId && codebaseHasChanges) {
+      out.push({ id: "codebase", label: "Codebase" });
+    }
     out.push({ id: "raw", label: "JSON" });
     return out;
-  }, [isModelCall, isToolCall, messages, outputMessage, policyEvent, node.checkpointId]);
+  }, [isModelCall, isToolCall, messages, outputMessage, policyEvent, node.checkpointId, codebaseHasChanges]);
 
   const [activeTab, setActiveTab] = useState<Tab>(tabs[0].id);
   const effectiveTab = tabs.find((t) => t.id === activeTab) ? activeTab : tabs[0].id;
@@ -156,18 +185,32 @@ export function NodeInspector({ node, policyEvent, onClose, onRecoveryStarted }:
               <p className="text-[var(--color-text)] leading-relaxed">{node.summary}</p>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-[var(--color-text-muted)] block mb-1">Started</label>
-                <p className="text-[var(--color-text)] font-mono">
-                  {new Date(node.startedAt).toLocaleTimeString()}
-                </p>
-              </div>
-              <div>
-                <label className="text-[var(--color-text-muted)] block mb-1">Ended</label>
-                <p className="text-[var(--color-text)] font-mono">
-                  {node.endedAt ? new Date(node.endedAt).toLocaleTimeString() : "—"}
-                </p>
-              </div>
+              {node.endedAt && node.endedAt !== node.startedAt ? (
+                <>
+                  <div>
+                    <label className="text-[var(--color-text-muted)] block mb-1">Started</label>
+                    <p className="text-[var(--color-text)] font-mono">
+                      {new Date(node.startedAt).toLocaleTimeString()}
+                    </p>
+                  </div>
+                  <div>
+                    <label className="text-[var(--color-text-muted)] block mb-1">Ended</label>
+                    <p className="text-[var(--color-text)] font-mono">
+                      {new Date(node.endedAt).toLocaleTimeString()}
+                    </p>
+                  </div>
+                </>
+              ) : (
+                <div className="col-span-2">
+                  <label className="text-[var(--color-text-muted)] block mb-1">At</label>
+                  <p className="text-[var(--color-text)] font-mono">
+                    {new Date(node.startedAt).toLocaleTimeString()}{" "}
+                    <span className="text-[var(--color-text-muted)] text-[11px] ml-1">
+                      (instantaneous event)
+                    </span>
+                  </p>
+                </div>
+              )}
             </div>
             {isModelCall && (tokenCount || latencyMs !== null) && (
               <div className="grid grid-cols-2 gap-3">

@@ -182,9 +182,15 @@ export class RuntimeTracker {
   }
 
   afterModelCall(callId: string, input: AfterModelCallInput): void {
+    // The trace-ingestor merges start+end into ONE persisted node keyed on
+    // the start event's nodeId. Reuse `callId` here so the end event refers
+    // to the same logical node — otherwise the tracker's `lastNodeId`
+    // advances to a phantom nodeId that doesn't exist in the DB and
+    // subsequent emits (checkpoints, validations) get parented to a
+    // dangling reference.
     this.emit({
       type: "model_call_end",
-      nodeId: this.nextNodeId(),
+      nodeId: callId,
       parentNodeId: callId,
       attributes: {
         callId,
@@ -212,9 +218,11 @@ export class RuntimeTracker {
   }
 
   afterToolCall(callId: string, input: AfterToolCallInput): void {
+    // Same fix as `afterModelCall`: reuse `callId` so the merged
+    // (start+end) persisted node's id matches the tracker's lastNodeId.
     this.emit({
       type: "tool_call_end",
-      nodeId: this.nextNodeId(),
+      nodeId: callId,
       parentNodeId: callId,
       attributes: {
         callId,

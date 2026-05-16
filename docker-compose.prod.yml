@@ -49,8 +49,12 @@ services:
       - "${WEB_PORT:-3000}:3000"
     # Bind-mount the repo read-write so the agent's tools can read & modify
     # the live source. NEMOCLAW_SANDBOX_ROOT pins all tool paths inside it.
+    # Also mount real NemoClaw snapshot dirs (read-only) so the Codebase tab
+    # can walk + read files from snapshots created by `nemoclaw <name>
+    # snapshot create` on the host.
     volumes:
       - ./:/workspace
+      - ${NEMOCLAW_SNAPSHOTS_HOST:-/home/ubuntu/.nemoclaw}:/home/ubuntu/.nemoclaw:ro
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-nemocognition}:${POSTGRES_PASSWORD:-nemocognition_dev}@postgres:5432/${POSTGRES_DB:-nemocognition}
       NODE_ENV: production

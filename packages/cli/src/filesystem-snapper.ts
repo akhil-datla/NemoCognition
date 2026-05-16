@@ -172,23 +172,78 @@ export class Snapper {
     };
   }
 
-  /** Read the manifest of a previously-written snapshot. */
+  /**
+   * Read the manifest of a previously-written snapshot. Supports two formats:
+   *
+   *  1. Our own TAR-based snapshots: `<root>/<runId>/<cpId>.tar` paired with
+   *     `<root>/<runId>/<cpId>.json` carrying the manifest.
+   *  2. Real NemoClaw directory snapshots produced by
+   *     `nemoclaw <sandbox> snapshot create`. These live at
+     *     `/home/ubuntu/.nemoclaw/rebuild-backups/<sandbox>/<timestamp>` as a
+   *     directory tree of the sandbox's files. We synthesize a manifest by
+   *     walking the directory.
+   */
   async readManifest(artifactPath: string): Promise<SnapshotManifest | null> {
+    // Fast path: sidecar JSON next to a .tar archive.
     const manifestPath = artifactPath.replace(/\.tar$/, ".json");
+    if (manifestPath !== artifactPath) {
+      try {
+        const raw = await fs.readFile(manifestPath, "utf8");
+        return JSON.parse(raw) as SnapshotManifest;
+      } catch {
+        /* fall through to directory case */
+      }
+    }
+    // NemoClaw directory format: walk the directory and synthesise a manifest.
+    let stat;
     try {
-      const raw = await fs.readFile(manifestPath, "utf8");
-      return JSON.parse(raw) as SnapshotManifest;
+      stat = await fs.stat(artifactPath);
     } catch {
       return null;
     }
+    if (!stat.isDirectory()) return null;
+    const files = await walkSandbox(artifactPath);
+    const parts = artifactPath.split(path.sep).filter(Boolean);
+    const sandboxName = parts[parts.length - 2] ?? "?";
+    const ts = parts[parts.length - 1] ?? "?";
+    return {
+      cpId: `nemoclaw:${sandboxName}:${ts}`,
+      runId: "?",
+      branchId: "?",
+      nodeId: "?",
+      kind: "manual",
+      checksum: "",
+      fileCount: files.length,
+      files,
+      sandboxRoot: artifactPath,
+      createdAt: stat.mtime.toISOString(),
+    };
   }
 
   /**
-   * Read a single file's bytes from a snapshot archive without extracting.
-   * Returns null when the entry is not present.
+   * Read a single file's bytes from a snapshot. Handles both TAR archives
+   * and NemoClaw directory snapshots.
    */
   async readEntry(artifactPath: string, entryPath: string): Promise<Buffer | null> {
     const normalized = entryPath.replace(/^\.?\//, "");
+    // Directory snapshot (NemoClaw): read directly from disk.
+    try {
+      const stat = await fs.stat(artifactPath);
+      if (stat.isDirectory()) {
+        const filePath = path.join(artifactPath, normalized);
+        // Defend against path traversal by ensuring resolved path stays inside.
+        const rel = path.relative(artifactPath, filePath);
+        if (rel.startsWith("..") || path.isAbsolute(rel)) return null;
+        try {
+          return await fs.readFile(filePath);
+        } catch {
+          return null;
+        }
+      }
+    } catch {
+      return null;
+    }
+    // TAR archive: stream-parse and return the matching entry.
     return new Promise((resolve, reject) => {
       const chunks: Buffer[] = [];
       let found = false;
@@ -214,12 +269,23 @@ export class Snapper {
   }
 
   /**
-   * Extract a snapshot archive into a target directory. The target is wiped
-   * and recreated to guarantee bit-for-bit fidelity.
+   * Extract a snapshot into a target directory. Handles both TAR archives
+   * and NemoClaw directory snapshots (the latter via plain recursive copy).
+   * The target is wiped and recreated to guarantee bit-for-bit fidelity.
    */
   async extract(artifactPath: string, destDir: string): Promise<void> {
     await fs.rm(destDir, { recursive: true, force: true });
     await fs.mkdir(destDir, { recursive: true });
+    let stat;
+    try {
+      stat = await fs.stat(artifactPath);
+    } catch {
+      throw new Error(`extract: source not found: ${artifactPath}`);
+    }
+    if (stat.isDirectory()) {
+      await fs.cp(artifactPath, destDir, { recursive: true });
+      return;
+    }
     await tar.extract({ file: artifactPath, cwd: destDir });
   }
 }

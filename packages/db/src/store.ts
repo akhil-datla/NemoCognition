@@ -39,6 +39,8 @@ export interface Store {
    * the same branch when no ancestor has one.
    */
   findNearestCheckpointBeforeNode(runId: string, branchId: string, nodeId: string): Promise<Checkpoint | undefined>;
+  /** All checkpoints for a (run, branch), in any order — caller sorts. */
+  getRunBranchCheckpoints(runId: string, branchId: string): Promise<Checkpoint[]>;
 
   // policy decisions
   setPolicyDecision(pde: PolicyDecisionEvent): Promise<void>;

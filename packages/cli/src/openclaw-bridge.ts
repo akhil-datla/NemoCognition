@@ -138,6 +138,8 @@ interface OpenClawResult {
   toolCalls: Array<{ name: string; arguments: unknown; output?: unknown; error?: string }>;
   exitCode: number;
   durationMs: number;
+  /** Token usage parsed from OpenClaw's agentMeta.usage (input, output). */
+  usage: { input: number; output: number };
 }
 
 /**
@@ -234,6 +236,19 @@ function openclawAgent(sandbox: string, sessionId: string, message: string): Ope
     }
   }
 
+  // Token usage lives at `meta.agentMeta.usage` ({ input, output, total }).
+  // Fall back to common alternate locations for forward-compat.
+  const usageSrc =
+    inner.agentMeta?.usage ??
+    inner.usage ??
+    inner.completion?.usage ??
+    (parsed as any)?.result?.meta?.agentMeta?.usage ??
+    null;
+  const usage = {
+    input: Number(usageSrc?.input ?? usageSrc?.promptTokens ?? usageSrc?.inputTokens ?? 0) || 0,
+    output: Number(usageSrc?.output ?? usageSrc?.completionTokens ?? usageSrc?.outputTokens ?? 0) || 0,
+  };
+
   return {
     rawJson: parsed,
     finalText: inner.finalAssistantVisibleText ?? inner.finalAssistantRawText ?? null,
@@ -250,6 +265,7 @@ function openclawAgent(sandbox: string, sessionId: string, message: string): Ope
     toolCalls,
     exitCode: r.exitCode,
     durationMs,
+    usage,
   };
 }
 
@@ -397,18 +413,24 @@ async function runBridge(cfg: BridgeConfig): Promise<void> {
 
   for (let attempt = 0; attempt <= cfg.maxRecoveries; attempt++) {
     // Snapshot before invoking the agent (pre-tool semantics).
+    // Skip the pre-invoke snapshot on the very first iteration — the
+    // `manual` baseline taken before the loop already captures the exact
+    // same sandbox state (nothing happens between them). The redundant
+    // duplicate just adds visual noise to the replay graph.
     let preInvokeSnap: SnapshotInfo | null = null;
-    try {
-      preInvokeSnap = snapshotCreate(currentSandbox, `pre-invoke-${runId.slice(4, 12)}-${attempt}`);
-      tracker.createCheckpoint({
-        memory: {},
-        policyYaml: "",
-        artifactPath: preInvokeSnap.path,
-        fileCount: 0,
-        kind: "pre_tool",
-      });
-    } catch (err) {
-      console.error(`[snap-warn] ${err instanceof Error ? err.message : String(err)}`);
+    if (attempt > 0) {
+      try {
+        preInvokeSnap = snapshotCreate(currentSandbox, `pre-invoke-${runId.slice(4, 12)}-${attempt}`);
+        tracker.createCheckpoint({
+          memory: {},
+          policyYaml: "",
+          artifactPath: preInvokeSnap.path,
+          fileCount: 0,
+          kind: "pre_tool",
+        });
+      } catch (err) {
+        console.error(`[snap-warn] ${err instanceof Error ? err.message : String(err)}`);
+      }
     }
 
     // Invoke openclaw agent in the (possibly recovery) sandbox.
@@ -421,7 +443,7 @@ async function runBridge(cfg: BridgeConfig): Promise<void> {
     tracker.afterModelCall(callId, {
       outputRef: result.finalText ?? "(no text)",
       outputMessage: { role: "assistant", content: result.finalText ?? "" },
-      tokenCount: { input: 0, output: 0 },
+      tokenCount: result.usage,
       latencyMs: result.durationMs,
       toolCallsValid: result.toolCalls.length > 0,
     });
@@ -442,6 +464,22 @@ async function runBridge(cfg: BridgeConfig): Promise<void> {
 
     const failure = detectFailure(result);
     if (!failure) {
+      // Capture the post-invocation sandbox state so the Codebase tab on
+      // this checkpoint can render the files the agent just wrote (diff'd
+      // against the pre_invoke snapshot above). Without this snap, the
+      // workspace changes the agent made are invisible to the replay UI.
+      try {
+        const postSnap = snapshotCreate(currentSandbox, `post-invoke-${runId.slice(4, 12)}-${attempt}`);
+        tracker.createCheckpoint({
+          memory: {},
+          policyYaml: "",
+          artifactPath: postSnap.path,
+          fileCount: 0,
+          kind: "post_tool",
+        });
+      } catch (err) {
+        console.error(`[snap-warn] post-invoke: ${err instanceof Error ? err.message : String(err)}`);
+      }
       tracker.validate({ status: "pass", evidence: [`stopReason=${result.stopReason}`, `finalText=${(result.finalText ?? "").slice(0, 80)}`] });
       console.log(`\n✓ Task completed by OpenClaw on sandbox=${currentSandbox}`);
       if (result.finalText) console.log(`Final answer: ${result.finalText.slice(0, 400)}`);
@@ -533,6 +571,22 @@ async function runBridge(cfg: BridgeConfig): Promise<void> {
     currentSessionId = `nemograph-${runId.slice(4, 12)}-${attempt + 1}`;
     currentTask = `${recovery.correctionPrompt}\n\nORIGINAL TASK: ${cfg.task}\n\nDo NOT retry the failed action verbatim.`;
     recoveriesUsed += 1;
+  }
+
+  // Final snapshot of the active sandbox at end-of-run. Captures the agent's
+  // last-known workspace state regardless of whether the run succeeded or
+  // hit the recovery budget.
+  try {
+    const finalSnap = snapshotCreate(currentSandbox, `final-${runId.slice(4, 12)}`);
+    tracker.createCheckpoint({
+      memory: {},
+      policyYaml: "",
+      artifactPath: finalSnap.path,
+      fileCount: 0,
+      kind: "final",
+    });
+  } catch (err) {
+    console.error(`[snap-warn] final: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   tracker.endRun(finalStatus);
