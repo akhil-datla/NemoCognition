@@ -1,8 +1,15 @@
+import { loadEnvConfig } from "@next/env";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import type { NextConfig } from "next";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const repoRoot = resolve(__dirname, "..", "..");
+
+// Monorepo root `.env` holds NIM_API_KEY, DATABASE_URL, etc.
+loadEnvConfig(repoRoot);
+// Optional per-app overrides in apps/web/.env.local
+loadEnvConfig(__dirname);
 
 const nextConfig: NextConfig = {
   output: "standalone",

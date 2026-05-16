@@ -1,10 +1,12 @@
+import { promises as fs } from "node:fs";
 import { SessionRecorder } from "@nemocognition/cli";
-import type { Session } from "@nemocognition/cli";
+import type { Session, BranchFromInput } from "@nemocognition/cli";
 import type { TrackerEvent, NimMessage, NimToolDef, PolicyConfig } from "@nemocognition/nemoclaw";
 import { evaluatePolicy, DEFAULT_POLICY } from "@nemocognition/nemoclaw";
 import type { Store } from "@nemocognition/db";
 import { ingestTrackerEvents } from "@nemocognition/tracing";
 import { buildAgentTools, type AgentTool } from "./agent-tools";
+import { snapper, sandboxRootForRun } from "./snapper";
 
 /** Live status of a running session. Used by the SSE handler. */
 export type RunnerStatus = "running" | "completed" | "failed";
@@ -54,10 +56,17 @@ export class SessionRunner {
   private status: RunnerStatus = "running";
   readonly runId: string;
   readonly branchId: string;
+  /** "start" for fresh runs; "branch" for recovery branches resuming an existing run. */
+  readonly mode: "start" | "branch";
   private session: Session;
   private endedAt: number | null = null;
 
-  constructor(private config: SessionRunnerConfig, title: string, userTask: string) {
+  constructor(
+    private config: SessionRunnerConfig,
+    title: string,
+    userTask: string,
+    branchFrom?: BranchFromInput,
+  ) {
     const recorder = new SessionRecorder({
       nimEndpoint: config.nimEndpoint,
       nimApiKey: config.nimApiKey,
@@ -67,9 +76,24 @@ export class SessionRunner {
       fetch: config.fetch,
       onTrackerEvent: (e) => this.emit(e),
     });
-    this.session = recorder.start({ title, userTask });
+    this.session = branchFrom
+      ? recorder.branch(branchFrom)
+      : recorder.start({ title, userTask });
     this.runId = this.session.runId;
     this.branchId = this.session.branchId;
+    this.mode = branchFrom ? "branch" : "start";
+  }
+
+  /**
+   * Create a SessionRunner that resumes an existing run as a recovery branch.
+   * The new branch shares the parent runId, persists into the same graph, and
+   * its events stream over a freshly registered SSE channel.
+   */
+  static fromBranch(
+    config: SessionRunnerConfig,
+    branchInput: BranchFromInput,
+  ): SessionRunner {
+    return new SessionRunner(config, "__recovery_branch__", "", branchInput);
   }
 
   getRunId(): string {
@@ -104,11 +128,47 @@ export class SessionRunner {
   }
 
   async run(userTask: string): Promise<void> {
-    const sandboxRoot = this.config.sandboxRoot ?? process.cwd();
+    const sandboxRoot = this.config.sandboxRoot ?? sandboxRootForRun(this.runId);
+    await fs.mkdir(sandboxRoot, { recursive: true });
     const policy = this.config.policy ?? DEFAULT_POLICY;
     const maxIterations = this.config.maxIterations ?? DEFAULT_MAX_ITERATIONS;
     const tools = buildAgentTools(sandboxRoot);
     const toolByName = new Map<string, AgentTool>(tools.map((t) => [t.name, t]));
+
+    /** Tools whose execution can change the filesystem and so warrant a pre-snap. */
+    const isMutating = (t: AgentTool): boolean =>
+      t.actionType === "file_write" || t.actionType === "command_execution";
+
+    /** Take a snapshot and emit a checkpoint event carrying the artifact metadata. */
+    const snapAndCheckpoint = async (
+      kind: "pre_tool" | "final",
+      contextNodeId: string,
+    ): Promise<void> => {
+      try {
+        const result = await snapper.snapshot({
+          runId: this.runId,
+          branchId: this.branchId,
+          nodeId: contextNodeId,
+          kind,
+          sandboxRoot,
+        });
+        this.session.checkpoint({
+          memory: {},
+          policyYaml: "",
+          artifactPath: result.artifactPath,
+          checksum: result.checksum,
+          fileCount: result.fileCount,
+          kind,
+        });
+      } catch (err) {
+        // Snapshots are best-effort — never fail a run because we couldn't
+        // tar the sandbox. Surface as a non-fatal error event.
+        this.emit({
+          type: "error",
+          message: `Snapshot (${kind}) failed: ${err instanceof Error ? err.message : String(err)}`,
+        });
+      }
+    };
 
     for (const t of tools) {
       this.session.registerTool({
@@ -195,6 +255,10 @@ export class SessionRunner {
             continue;
           }
 
+          if (isMutating(tool)) {
+            await snapAndCheckpoint("pre_tool", tc.id);
+          }
+
           const result = await this.session.executeTool(tc.name, args);
           const payload = result.errorClass
             ? { error: result.errorClass, output: result.output }
@@ -213,6 +277,9 @@ export class SessionRunner {
       });
       finalStatus = "failed";
     }
+    // Always take a final snapshot so the post-state of the last node (and
+    // therefore the diff against any earlier checkpoint) is recoverable.
+    await snapAndCheckpoint("final", this.runId);
     try {
       this.session.end(finalStatus);
     } catch {
@@ -224,13 +291,14 @@ export class SessionRunner {
     try {
       const events = this.session.getEvents();
       const ingest = ingestTrackerEvents(events);
-      if (ingest.run) {
-        await this.config.store.setRun(ingest.run);
-        for (const b of ingest.branches) await this.config.store.setBranch(b);
-        for (const n of ingest.nodes) await this.config.store.setNode(n);
-        for (const c of ingest.checkpoints) await this.config.store.setCheckpoint(c);
-        for (const p of ingest.policyDecisions) await this.config.store.setPolicyDecision(p);
-      }
+      // Recovery branches don't emit run_start (the parent run already
+      // exists), so `ingest.run` is null but the branch + node rows must
+      // still be persisted into the same graph.
+      if (ingest.run) await this.config.store.setRun(ingest.run);
+      for (const b of ingest.branches) await this.config.store.setBranch(b);
+      for (const n of ingest.nodes) await this.config.store.setNode(n);
+      for (const c of ingest.checkpoints) await this.config.store.setCheckpoint(c);
+      for (const p of ingest.policyDecisions) await this.config.store.setPolicyDecision(p);
       await this.session.flushToBackends();
     } catch (err) {
       this.emit({

@@ -1,9 +1,11 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import type { ExecutionNode, PolicyDecisionEvent } from "@nemocognition/core";
+import { CodebaseTab } from "./CodebaseTab";
 
-type Tab = "summary" | "prompt" | "response" | "tool_io" | "policy" | "audit" | "raw";
+type Tab = "summary" | "prompt" | "response" | "tool_io" | "policy" | "audit" | "codebase" | "raw";
 
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   success: { label: "Allowed / Success", color: "#22c55e" },
@@ -62,9 +64,10 @@ export function NodeInspector({ node, policyEvent, onClose }: NodeInspectorProps
     if (isToolCall) out.push({ id: "tool_io", label: "Tool I/O" });
     if (policyEvent) out.push({ id: "policy", label: "Policy" });
     if (policyEvent) out.push({ id: "audit", label: "Audit" });
+    if (node.checkpointId) out.push({ id: "codebase", label: "Codebase" });
     out.push({ id: "raw", label: "JSON" });
     return out;
-  }, [isModelCall, isToolCall, messages, outputMessage, policyEvent]);
+  }, [isModelCall, isToolCall, messages, outputMessage, policyEvent, node.checkpointId]);
 
   const [activeTab, setActiveTab] = useState<Tab>(tabs[0].id);
   const effectiveTab = tabs.find((t) => t.id === activeTab) ? activeTab : tabs[0].id;
@@ -125,6 +128,11 @@ export function NodeInspector({ node, policyEvent, onClose }: NodeInspectorProps
       </div>
 
       {/* Content */}
+      {effectiveTab === "codebase" && node.checkpointId ? (
+        <div className="flex-1 min-h-0 overflow-hidden">
+          <CodebaseTab checkpointId={node.checkpointId} />
+        </div>
+      ) : (
       <div className="flex-1 overflow-y-auto p-4 text-xs">
         {effectiveTab === "summary" && (
           <div className="space-y-4">
@@ -172,20 +180,7 @@ export function NodeInspector({ node, policyEvent, onClose }: NodeInspectorProps
             )}
 
             {node.status === "failure" && (
-              <div className="border border-[var(--color-failure)]/30 rounded-lg p-3 bg-[var(--color-failure)]/5">
-                <h4 className="text-[var(--color-failure)] font-medium mb-2">Recovery Options</h4>
-                <div className="space-y-2">
-                  <button className="w-full text-left px-3 py-2 rounded border border-[var(--color-branch)]/40 bg-[var(--color-branch)]/5 text-[var(--color-branch)] hover:bg-[var(--color-branch)]/10 transition-colors">
-                    ⑂ Replan within policy
-                  </button>
-                  <button className="w-full text-left px-3 py-2 rounded border border-[var(--color-risky)]/40 bg-[var(--color-risky)]/5 text-[var(--color-risky)] hover:bg-[var(--color-risky)]/10 transition-colors">
-                    ⚙ Suggest policy change
-                  </button>
-                  <button className="w-full text-left px-3 py-2 rounded border border-[var(--color-accent)]/40 bg-[var(--color-accent)]/5 text-[var(--color-accent)] hover:bg-[var(--color-accent)]/10 transition-colors">
-                    ⊙ Rerun in stricter sandbox
-                  </button>
-                </div>
-              </div>
+              <RecoveryPanel runId={node.runId} failedNodeId={node.nodeId} />
             )}
           </div>
         )}
@@ -307,6 +302,110 @@ export function NodeInspector({ node, policyEvent, onClose }: NodeInspectorProps
           </pre>
         )}
       </div>
+      )}
+    </div>
+  );
+}
+
+interface RecoveryPanelProps {
+  runId: string;
+  failedNodeId: string;
+}
+
+interface RecoveryResponse {
+  runId: string;
+  branchId: string;
+  forkNodeId: string;
+  restoredCheckpointId: string | null;
+  sandboxRoot: string;
+}
+
+/**
+ * "Create recovery chain" — restores the sandbox to the pre-failure
+ * checkpoint and spawns a new branch in the SAME run with failure context.
+ * Auto-refreshes the page every 3s so the new branch's nodes appear in the
+ * graph as they're persisted.
+ */
+function RecoveryPanel({ runId, failedNodeId }: RecoveryPanelProps) {
+  const router = useRouter();
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<RecoveryResponse | null>(null);
+
+  const handleClick = async () => {
+    setSubmitting(true);
+    setError(null);
+    try {
+      const r = await fetch(`/api/runs/${runId}/recover`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ failedNodeId }),
+      });
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}));
+        throw new Error(body.error ?? `HTTP ${r.status}`);
+      }
+      const data = (await r.json()) as RecoveryResponse;
+      setResult(data);
+      // Pull the freshly-inserted recovery branch into the graph immediately,
+      // then keep refreshing for ~30s to surface nodes as they're written.
+      router.refresh();
+      let ticks = 0;
+      const interval = setInterval(() => {
+        ticks += 1;
+        router.refresh();
+        if (ticks >= 10) clearInterval(interval);
+      }, 3000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (result) {
+    return (
+      <div className="border border-[var(--color-branch)]/40 rounded-lg p-3 bg-[var(--color-branch)]/5 space-y-2">
+        <h4 className="text-[var(--color-branch)] font-medium text-xs">
+          Recovery branch started
+        </h4>
+        <p className="text-[10px] text-[var(--color-text-muted)] font-mono break-all">
+          {result.branchId}
+        </p>
+        {result.restoredCheckpointId && (
+          <p className="text-[10px] text-[var(--color-text-muted)]">
+            Sandbox restored to{" "}
+            <span className="font-mono text-[var(--color-accent)]">
+              {result.restoredCheckpointId}
+            </span>
+          </p>
+        )}
+        <p className="text-[10px] text-[var(--color-text-muted)] italic">
+          Watching for new nodes — they&apos;ll appear in the graph as the agent runs.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="border border-[var(--color-failure)]/30 rounded-lg p-3 bg-[var(--color-failure)]/5 space-y-2">
+      <h4 className="text-[var(--color-failure)] font-medium text-xs">Recovery</h4>
+      <p className="text-[10px] text-[var(--color-text-muted)] leading-relaxed">
+        Restores the sandbox to the checkpoint just before this failure and
+        starts a new branch in this run with full failure context. The agent
+        will reason fresh from the restored state.
+      </p>
+      <button
+        type="button"
+        onClick={handleClick}
+        disabled={submitting}
+        className="w-full text-left px-3 py-2 rounded border border-[var(--color-branch)]/40 bg-[var(--color-branch)]/5 text-[var(--color-branch)] hover:bg-[var(--color-branch)]/10 transition-colors text-xs disabled:opacity-50"
+      >
+        {submitting ? "Starting recovery branch…" : "⑂ Create recovery chain"}
+      </button>
+      {error && (
+        <p className="text-[10px] text-[var(--color-failure)]">Failed: {error}</p>
+      )}
     </div>
   );
 }

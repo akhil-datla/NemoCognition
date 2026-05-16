@@ -9,5 +9,8 @@ dist/
 coverage/
 test-results/
 playwright-report/
-checkpoints/
+/checkpoints/
+/sandboxes/
+apps/*/checkpoints/
+apps/*/sandboxes/
 *.log

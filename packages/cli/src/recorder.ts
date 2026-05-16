@@ -36,6 +36,21 @@ interface StartInput {
   userTask: string;
 }
 
+/**
+ * When set on RecorderConfig.branchFrom (or passed to Session.startBranch), the
+ * Session is initialised as a recovery branch of an existing run instead of
+ * starting a fresh one.
+ */
+export interface BranchFromInput {
+  runId: string;
+  parentBranchId: string;
+  forkNodeId: string;
+  branchId?: string;
+  correctionSummary?: string;
+  checkpointId?: string;
+  failureCategory?: string;
+}
+
 interface PolicyInput {
   actionType: string;
   decision: "allow" | "deny";
@@ -51,6 +66,10 @@ interface PolicyInput {
 interface CheckpointInput {
   memory: Record<string, unknown>;
   policyYaml: string;
+  artifactPath?: string;
+  checksum?: string;
+  fileCount?: number;
+  kind?: "pre_tool" | "post_tool" | "final" | "manual" | "pre_restore";
 }
 
 export class SessionRecorder {
@@ -61,9 +80,18 @@ export class SessionRecorder {
   }
 
   start(input: StartInput): Session {
-    return new Session(this.config, input);
+    return new Session(this.config, { mode: "start", input });
+  }
+
+  /** Begin recording into an existing run as a recovery branch. */
+  branch(input: BranchFromInput): Session {
+    return new Session(this.config, { mode: "branch", input });
   }
 }
+
+type SessionInit =
+  | { mode: "start"; input: StartInput }
+  | { mode: "branch"; input: BranchFromInput };
 
 export class Session {
   private tracker: RuntimeTracker;
@@ -72,8 +100,10 @@ export class Session {
   private events: TrackerEvent[] = [];
   readonly runId: string;
   readonly branchId: string;
+  /** "start" for fresh runs; "branch" for recovery branches resuming an existing run. */
+  readonly mode: "start" | "branch";
 
-  constructor(config: RecorderConfig, input: StartInput) {
+  constructor(config: RecorderConfig, init: SessionInit | StartInput) {
     this.config = config;
     this.tracker = new RuntimeTracker({
       onEvent: (e) => {
@@ -84,9 +114,20 @@ export class Session {
     });
     this.toolWrapper = new ToolWrapper();
 
-    const { runId, branchId } = this.tracker.startRun(input);
-    this.runId = runId;
-    this.branchId = branchId;
+    // Back-compat: when called as `new Session(cfg, { title, userTask })`,
+    // treat as a fresh run.
+    const normalized: SessionInit =
+      "mode" in init ? init : { mode: "start", input: init };
+    this.mode = normalized.mode;
+    if (normalized.mode === "start") {
+      const { runId, branchId } = this.tracker.startRun(normalized.input);
+      this.runId = runId;
+      this.branchId = branchId;
+    } else {
+      const { runId, branchId } = this.tracker.branchOff(normalized.input);
+      this.runId = runId;
+      this.branchId = branchId;
+    }
   }
 
   private getChatFn(): NonNullable<RecorderConfig["nimChat"]> {

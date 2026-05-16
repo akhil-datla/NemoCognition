@@ -162,7 +162,21 @@ export function ingestTrackerEvents(events: TrackerEvent[]): IngestResult {
         const cpId = String(event.attributes.checkpointId ?? `cp_${randomUUID().slice(0, 8)}`);
         const memory = event.attributes.memory as Record<string, unknown> | undefined;
         const policyYaml = event.attributes.policyYaml as string | undefined;
-        result.nodes.push(makeNode(event, "checkpoint", "success", "Checkpoint", `Checkpoint ${cpId}`));
+        const artifactPath = event.attributes.artifactPath as string | undefined;
+        const checksum = event.attributes.checksum as string | undefined;
+        const fileCount = event.attributes.fileCount as number | undefined;
+        const kind = event.attributes.kind as string | undefined;
+        // Tag the projected ExecutionNode with this checkpoint id so the UI
+        // can show a "Codebase" tab on the right node.
+        const cpNode = makeNode(event, "checkpoint", "success", "Checkpoint", `Checkpoint ${cpId}${kind ? ` (${kind})` : ""}`);
+        cpNode.checkpointId = cpId;
+        result.nodes.push(cpNode);
+        // Stash snapshot bookkeeping inside memoryJson so we don't have to
+        // migrate the schema. Only injected when an actual snapshot was
+        // produced — keeps existing memory-only checkpoints untouched.
+        const memoryJson: Record<string, unknown> | null = artifactPath
+          ? { ...(memory ?? {}), __snapshot: { artifactPath, checksum, fileCount, kind } }
+          : memory ?? null;
         result.checkpoints.push({
           id: cpId,
           runId: event.runId,
@@ -171,8 +185,8 @@ export function ingestTrackerEvents(events: TrackerEvent[]): IngestResult {
           memoryRef: null,
           contextRef: null,
           promptRef: null,
-          diffRef: null,
-          fileTreeHashRef: null,
+          diffRef: artifactPath ?? null,
+          fileTreeHashRef: checksum ?? null,
           envRef: null,
           policyRef: null,
           policyResolvedRef: null,
@@ -180,7 +194,7 @@ export function ingestTrackerEvents(events: TrackerEvent[]): IngestResult {
           validationRef: null,
           parentCheckpointId: null,
           phoenixTraceRef: null,
-          memoryJson: memory ?? null,
+          memoryJson,
           policyYaml: policyYaml ?? null,
           createdAt: event.timestamp,
         });
@@ -202,6 +216,33 @@ export function ingestTrackerEvents(events: TrackerEvent[]): IngestResult {
         const passed = event.attributes.status === "pass";
         result.nodes.push(
           makeNode(event, "validation", passed ? "success" : "failure", "Validation", String(event.attributes.status ?? "")),
+        );
+        break;
+      }
+      case "branch_start": {
+        const parentBranchId = String(event.attributes.parentBranchId ?? "");
+        const forkNodeId = String(event.attributes.forkNodeId ?? "");
+        const correctionSummary = event.attributes.correctionSummary as
+          | string
+          | null
+          | undefined;
+        result.branches.push({
+          id: event.branchId,
+          runId: event.runId,
+          parentBranchId: parentBranchId || null,
+          forkNodeId: forkNodeId || null,
+          status: "running",
+          correctionSummary: correctionSummary ?? null,
+          createdAt: event.timestamp,
+        });
+        result.nodes.push(
+          makeNode(
+            event,
+            "branch_start",
+            "branch",
+            "Recovery branch",
+            correctionSummary ?? `Forked from ${forkNodeId || parentBranchId}`,
+          ),
         );
         break;
       }

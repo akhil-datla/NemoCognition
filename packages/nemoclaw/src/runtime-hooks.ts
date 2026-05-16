@@ -74,6 +74,14 @@ interface PolicyDecisionInput {
 interface CheckpointInput {
   memory: Record<string, unknown>;
   policyYaml: string;
+  /** Filesystem snapshot artifact path on disk (TAR). Optional; absent for memory-only checkpoints. */
+  artifactPath?: string;
+  /** sha256 of the snapshot archive. */
+  checksum?: string;
+  /** Number of files captured in the snapshot. */
+  fileCount?: number;
+  /** Trigger that produced this checkpoint. */
+  kind?: "pre_tool" | "post_tool" | "final" | "manual" | "pre_restore";
 }
 
 interface ValidateInput {
@@ -118,6 +126,40 @@ export class RuntimeTracker {
         userTask: input.userTask,
         provider: "nvidia",
         model: "nemotron",
+      },
+    });
+
+    return { runId: this.runId, branchId: this.branchId };
+  }
+
+  /**
+   * Initialise the tracker as a recovery branch of an existing run. Emits a
+   * `branch_start` event linking the new branch back to its parent and the
+   * fork node. No `run_start` is emitted — the parent run already exists.
+   */
+  branchOff(input: {
+    runId: string;
+    parentBranchId: string;
+    forkNodeId: string;
+    branchId?: string;
+    correctionSummary?: string;
+    checkpointId?: string;
+    failureCategory?: string;
+  }): { runId: string; branchId: string } {
+    this.runId = input.runId;
+    this.branchId = input.branchId ?? `branch_${randomUUID()}`;
+    const nodeId = this.nextNodeId();
+
+    this.emit({
+      type: "branch_start",
+      nodeId,
+      parentNodeId: input.forkNodeId,
+      attributes: {
+        parentBranchId: input.parentBranchId,
+        forkNodeId: input.forkNodeId,
+        correctionSummary: input.correctionSummary ?? null,
+        checkpointId: input.checkpointId ?? null,
+        failureCategory: input.failureCategory ?? null,
       },
     });
 
@@ -223,6 +265,10 @@ export class RuntimeTracker {
         checkpointId,
         memory: input.memory,
         policyYaml: input.policyYaml,
+        artifactPath: input.artifactPath,
+        checksum: input.checksum,
+        fileCount: input.fileCount,
+        kind: input.kind,
       },
     });
     return checkpointId;

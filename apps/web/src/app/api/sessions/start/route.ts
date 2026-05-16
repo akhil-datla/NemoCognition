@@ -21,6 +21,15 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  const nimEndpoint =
+    process.env.NIM_ENDPOINT ??
+    process.env.NVIDIA_NIM_BASE_URL ??
+    "https://integrate.api.nvidia.com/v1";
+  const nimModel =
+    process.env.NIM_MODEL ??
+    process.env.NVIDIA_NIM_MODEL ??
+    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning";
+
   const body = await request.json().catch(() => ({}));
   const parsed = startInput.safeParse(body);
   if (!parsed.success) {
@@ -31,10 +40,13 @@ export async function POST(request: NextRequest) {
   const runner = new SessionRunner(
     {
       store,
-      nimEndpoint: process.env.NIM_ENDPOINT ?? "https://integrate.api.nvidia.com/v1",
+      nimEndpoint,
       nimApiKey: apiKey,
-      nimModel: process.env.NIM_MODEL ?? "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
-      phoenixEndpoint: process.env.PHOENIX_ENDPOINT ?? "http://localhost:6006",
+      nimModel,
+      phoenixEndpoint:
+        process.env.PHOENIX_ENDPOINT ??
+        process.env.PHOENIX_BASE_URL ??
+        "http://localhost:6006",
       sandboxRoot: process.env.NEMOCLAW_SANDBOX_ROOT,
     },
     parsed.data.title,
