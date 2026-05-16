@@ -1,0 +1,12 @@
+{
+  "cpId": "cp_ba368d8f",
+  "runId": "run_e6e38b36-a928-45a6-9a0b-7ce425115d74",
+  "branchId": "branch_recovery_b7750a1c",
+  "nodeId": "run_e6e38b36-a928-45a6-9a0b-7ce425115d74",
+  "kind": "final",
+  "checksum": "a4c20163b2b9b23bc50a9c55105262c1dfa5ed01d02c267893ca0f2eb7a31592",
+  "fileCount": 0,
+  "files": [],
+  "sandboxRoot": "/Users/rohanjp/NemoCognition-1/packages/cli/sandboxes/run_e6e38b36-a928-45a6-9a0b-7ce425115d74",
+  "createdAt": "2026-05-16T19:24:09.635Z"
+}

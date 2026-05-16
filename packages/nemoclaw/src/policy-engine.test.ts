@@ -101,11 +101,30 @@ describe("evaluatePolicy", () => {
 });
 
 describe("DEFAULT_POLICY", () => {
-  it("denies reading dotenv files anywhere in the tree", () => {
+  it("denies reading dotenv-secret files anywhere in the tree", () => {
     expect(evaluatePolicy("file_read", ".env", DEFAULT_POLICY).decision).toBe("deny");
     expect(evaluatePolicy("file_read", "apps/web/.env.local", DEFAULT_POLICY).decision).toBe(
       "deny",
     );
+    expect(evaluatePolicy("file_read", "packages/cli/.env.production", DEFAULT_POLICY).decision).toBe(
+      "deny",
+    );
+  });
+  it("allows reading + writing committed env templates", () => {
+    // .env.example/.env.template/.env.sample are the canonical recovery path
+    // when the agent gets denied writing to a real .env — they must NOT
+    // match the dotenv-secret rule.
+    for (const name of [".env.example", ".env.template", ".env.sample"]) {
+      expect(evaluatePolicy("file_read", name, DEFAULT_POLICY).decision).toBe("allow");
+      expect(evaluatePolicy("file_read", `apps/web/${name}`, DEFAULT_POLICY).decision).toBe("allow");
+      expect(evaluatePolicy("file_write", name, DEFAULT_POLICY).decision).toBe("allow");
+      expect(evaluatePolicy("file_write", `apps/web/${name}`, DEFAULT_POLICY).decision).toBe("allow");
+    }
+  });
+  it("denies writing dotenv-secret files but allows writing templates", () => {
+    expect(evaluatePolicy("file_write", ".env", DEFAULT_POLICY).decision).toBe("deny");
+    expect(evaluatePolicy("file_write", ".env.local", DEFAULT_POLICY).decision).toBe("deny");
+    expect(evaluatePolicy("file_write", ".env.example", DEFAULT_POLICY).decision).toBe("allow");
   });
   it("allows reading regular source files by default", () => {
     expect(evaluatePolicy("file_read", "apps/web/src/lib/foo.ts", DEFAULT_POLICY).decision).toBe(

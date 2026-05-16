@@ -28,6 +28,37 @@ export interface NimResponse {
   finishReason: string;
 }
 
+/**
+ * Text to persist in replay/Phoenix when the model returns tool calls without
+ * a final `content` string (common for Nemotron reasoning models on NIM).
+ */
+export function formatModelOutputForCapture(response: Pick<
+  NimResponse,
+  "content" | "reasoningContent" | "toolCalls"
+>): string {
+  const text = response.content?.trim();
+  if (text) return response.content!;
+
+  const reasoning = response.reasoningContent?.trim();
+  if (reasoning) return response.reasoningContent!;
+
+  if (response.toolCalls?.length) {
+    return response.toolCalls
+      .map((tc) => {
+        let args = tc.arguments;
+        try {
+          args = JSON.stringify(JSON.parse(tc.arguments), null, 2);
+        } catch {
+          /* keep raw arguments string */
+        }
+        return `Tool call: ${tc.name}\n${args}`;
+      })
+      .join("\n\n");
+  }
+
+  return "";
+}
+
 export interface NimConfig {
   endpoint: string;
   apiKey: string;

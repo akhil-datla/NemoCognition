@@ -5,7 +5,7 @@ import type {
   NimMessage,
   NimToolDef,
 } from "@nemocognition/nemoclaw";
-import { ToolWrapper, NimClient } from "@nemocognition/nemoclaw";
+import { ToolWrapper, NimClient, formatModelOutputForCapture } from "@nemocognition/nemoclaw";
 import { PhoenixExporter } from "@nemocognition/tracing";
 
 export interface RecorderConfig {
@@ -21,6 +21,7 @@ export interface RecorderConfig {
   /** Override the NIM chat function (used in tests). When unset, a real NimClient is created. */
   nimChat?: (messages: unknown[], options?: unknown) => Promise<{
     content: string | null;
+    reasoningContent?: string;
     toolCalls?: { id: string; name: string; arguments: string }[];
     tokenCount: { input: number; output: number };
     finishReason: string;
@@ -98,10 +99,27 @@ export class Session {
   private toolWrapper: ToolWrapper;
   private config: RecorderConfig;
   private events: TrackerEvent[] = [];
-  readonly runId: string;
-  readonly branchId: string;
+  private _runId: string;
+  private _branchId: string;
   /** "start" for fresh runs; "branch" for recovery branches resuming an existing run. */
   readonly mode: "start" | "branch";
+
+  get runId(): string {
+    return this._runId;
+  }
+
+  /**
+   * Current branch id — switches after `forkInto` so callers and persistence
+   * layers can follow the active branch through autonomous recoveries.
+   */
+  get branchId(): string {
+    return this._branchId;
+  }
+
+  /** Node id of the most recently emitted tracker event (for parenting forks). */
+  getLastNodeId(): string | null {
+    return this.tracker.getLastNodeId();
+  }
 
   constructor(config: RecorderConfig, init: SessionInit | StartInput) {
     this.config = config;
@@ -121,13 +139,28 @@ export class Session {
     this.mode = normalized.mode;
     if (normalized.mode === "start") {
       const { runId, branchId } = this.tracker.startRun(normalized.input);
-      this.runId = runId;
-      this.branchId = branchId;
+      this._runId = runId;
+      this._branchId = branchId;
     } else {
       const { runId, branchId } = this.tracker.branchOff(normalized.input);
-      this.runId = runId;
-      this.branchId = branchId;
+      this._runId = runId;
+      this._branchId = branchId;
     }
+  }
+
+  /**
+   * Fork the in-flight session onto a new branch of the same run. Emits a
+   * `branch_start` event parented at `forkNodeId`, switches the tracker to the
+   * new branch so subsequent events land there, and updates `branchId`.
+   *
+   * Used by the autonomous recovery loop: when a policy_deny halts the failed
+   * branch, the runner restores the FS snapshot and forks here to continue.
+   */
+  forkInto(input: BranchFromInput): { runId: string; branchId: string } {
+    const { runId, branchId } = this.tracker.branchOff(input);
+    this._runId = runId;
+    this._branchId = branchId;
+    return { runId, branchId };
   }
 
   private getChatFn(): NonNullable<RecorderConfig["nimChat"]> {
@@ -175,7 +208,7 @@ export class Session {
     });
     const latencyMs = Math.round(performance.now() - start);
 
-    const outputContent = response.content ?? "";
+    const outputContent = formatModelOutputForCapture(response);
     this.tracker.afterModelCall(callId, {
       outputRef: outputContent,
       outputMessage: { role: "assistant", content: outputContent },

@@ -306,6 +306,21 @@ export class RuntimeTracker {
     }));
   }
 
+  /** Most recently emitted node id, or null before any emission. */
+  getLastNodeId(): string | null {
+    return this.lastNodeId;
+  }
+
+  /** Current run id; null before startRun/branchOff. */
+  getRunId(): string | null {
+    return this.runId;
+  }
+
+  /** Current branch id; switches after branchOff. */
+  getBranchId(): string | null {
+    return this.branchId;
+  }
+
   private nextNodeId(): string {
     return `node_${randomUUID()}`;
   }

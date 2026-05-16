@@ -38,7 +38,7 @@ afterEach(() => {
   rmSync(sandboxRoot, { recursive: true, force: true });
 });
 
-function makeRunner(opts: { maxIterations?: number; taskTitle?: string } = {}) {
+function makeRunner(opts: { maxIterations?: number; taskTitle?: string; maxAutoRecoveries?: number } = {}) {
   return new SessionRunner(
     {
       store,
@@ -49,6 +49,7 @@ function makeRunner(opts: { maxIterations?: number; taskTitle?: string } = {}) {
       nimChat: mockNimChat,
       sandboxRoot,
       maxIterations: opts.maxIterations,
+      maxAutoRecoveries: opts.maxAutoRecoveries,
     },
     opts.taskTitle ?? "test task",
     opts.taskTitle ?? "test task",
@@ -132,33 +133,57 @@ describe("SessionRunner agent loop", () => {
     expect(toolResult!.content).toMatch(/research content/);
   });
 
-  it("denies write_file to .env and never executes the tool", async () => {
+  it("auto-restores + forks a recovery branch when policy denies a tool call", async () => {
+    // Turn 1: model asks to write .env (will be denied)
+    // Turn 2 (on the NEW recovery branch): model completes the task safely.
     mockNimChat
       .mockResolvedValueOnce(toolCallMessage("write_file", { path: ".env", content: "evil" }))
-      .mockResolvedValueOnce(finalMessage("ok, denied — stopped"));
+      .mockResolvedValueOnce(finalMessage("acknowledged the rollback, finishing"));
     const runner = makeRunner();
     const events: RunnerEvent[] = [];
     runner.subscribe((e) => events.push(e));
 
-    await runner.run("write .env");
+    await runner.run("write .env please");
     const types = events.map((e) => e.event.type);
 
+    // The violation was recorded …
     expect(types).toContain("policy_deny");
+    // … no tool was ever actually run …
     expect(types).not.toContain("tool_call_start");
     expect(existsSync(path.join(sandboxRoot, ".env"))).toBe(false);
+    // … a recovery branch was forked autonomously …
+    expect(types).toContain("branch_start");
 
     const denyEvent = events.find((e) => e.event.type === "policy_deny")!.event as {
+      branchId: string;
       attributes: Record<string, unknown>;
     };
     expect(denyEvent.attributes.actionType).toBe("file_write");
     expect(denyEvent.attributes.policyRuleId).toBe("deny_dotenv_write");
 
+    const branchStart = events.find((e) => e.event.type === "branch_start")!.event as {
+      branchId: string;
+      parentNodeId: string;
+      attributes: Record<string, unknown>;
+    };
+    // … on a different branch than the failed one …
+    expect(branchStart.branchId).not.toBe(denyEvent.branchId);
+    // … parented at the deny event (the fork point) …
+    expect(branchStart.parentNodeId).toBeTruthy();
+    // … carrying the failure category from classifyFailure().
+    expect(branchStart.attributes.failureCategory).toBe("File Write Denied");
+
+    // The second NIM call (the recovery turn) starts with a fresh system +
+    // correction prompt — the failed branch's tool-call history is gone.
     const secondCallMessages = mockNimChat.mock.calls[1][0] as Array<{
       role: string;
       content: string | null;
     }>;
-    const toolResult = secondCallMessages.find((m) => m.role === "tool");
-    expect(toolResult!.content).toMatch(/denied by policy/);
+    expect(secondCallMessages[0].role).toBe("system");
+    expect(secondCallMessages[1].role).toBe("user");
+    expect(secondCallMessages[1].content).toMatch(/resuming from checkpoint/);
+    expect(secondCallMessages[1].content).toMatch(/Policy category: File Write Denied/);
+    expect(secondCallMessages.some((m) => m.role === "tool")).toBe(false);
   });
 
   it("actually writes files via write_file when allowed", async () => {
@@ -208,6 +233,80 @@ describe("SessionRunner agent loop", () => {
     expect(decisions.length).toBe(1);
     expect(decisions[0].decision).toBe("allow");
     expect(decisions[0].actionType).toBe("file_read");
+  });
+
+  it("restores the sandbox state across an autonomous recovery", async () => {
+    // Mutate the sandbox with an allowed write so we have something to roll
+    // back. Then trigger a deny. The forked branch should see the sandbox
+    // restored to the post-mutation state captured by the pre_tool snapshot,
+    // and the failed branch's would-be writes should never reach disk.
+    mockNimChat
+      .mockResolvedValueOnce(
+        toolCallMessage("write_file", { path: "good.txt", content: "kept" }, "call_good"),
+      )
+      .mockResolvedValueOnce(
+        toolCallMessage("write_file", { path: ".env", content: "evil" }, "call_evil"),
+      )
+      .mockResolvedValueOnce(finalMessage("recovered ok"));
+
+    const runner = makeRunner();
+    const events: RunnerEvent[] = [];
+    runner.subscribe((e) => events.push(e));
+
+    await runner.run("write some files");
+
+    // good.txt was written before the deny and survives the rollback.
+    expect(readFileSync(path.join(sandboxRoot, "good.txt"), "utf8")).toBe("kept");
+    // .env was blocked.
+    expect(existsSync(path.join(sandboxRoot, ".env"))).toBe(false);
+
+    const branchStartEvents = events.filter((e) => e.event.type === "branch_start");
+    expect(branchStartEvents.length).toBe(1);
+
+    // Once a deny fires, no further policy_allow or tool_call_start should
+    // exist on the FAILED branch — they should all live on the new branch.
+    const denyEvent = events.find((e) => e.event.type === "policy_deny")!.event as {
+      branchId: string;
+    };
+    const eventsAfterDeny = events.slice(events.findIndex((e) => e.event === denyEvent) + 1);
+    const failedBranchActionsAfterDeny = eventsAfterDeny.filter(
+      (e) =>
+        "branchId" in e.event &&
+        e.event.branchId === denyEvent.branchId &&
+        (e.event.type === "tool_call_start" ||
+          e.event.type === "model_call_start" ||
+          e.event.type === "policy_allow"),
+    );
+    expect(failedBranchActionsAfterDeny.length).toBe(0);
+  });
+
+  it("falls back to the deny-tool-message after exhausting the recovery budget", async () => {
+    // Three denies in a row — with maxAutoRecoveries=1 only the first one
+    // triggers a fork; the second falls through to feeding the deny back to
+    // the model, and the model wraps up.
+    mockNimChat
+      .mockResolvedValueOnce(
+        toolCallMessage("write_file", { path: ".env", content: "evil1" }, "call_1"),
+      )
+      .mockResolvedValueOnce(
+        toolCallMessage("write_file", { path: ".env", content: "evil2" }, "call_2"),
+      )
+      .mockResolvedValueOnce(finalMessage("giving up, no .env"));
+
+    const runner = makeRunner({ maxAutoRecoveries: 1 });
+    const events: RunnerEvent[] = [];
+    runner.subscribe((e) => events.push(e));
+
+    await runner.run("keep trying .env");
+    const types = events.map((e) => e.event.type);
+    const branchStarts = types.filter((t) => t === "branch_start").length;
+    expect(branchStarts).toBe(1);
+    // The third NIM call sees a tool message on the post-budget deny.
+    const thirdCallMessages = mockNimChat.mock.calls[2][0] as Array<{
+      role: string;
+      content: string | null;
+    }>;
+    expect(thirdCallMessages.some((m) => m.role === "tool" && /denied by policy/.test(m.content ?? ""))).toBe(true);
   });
 
   it("seq is monotonically increasing", async () => {

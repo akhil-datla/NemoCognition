@@ -1,5 +1,13 @@
 export { RuntimeTracker, type TrackerEvent } from "./runtime-hooks";
-export { NimClient, type NimConfig, type NimMessage, type NimResponse, type NimToolCall, type NimToolDef } from "./nim-client";
+export {
+  NimClient,
+  formatModelOutputForCapture,
+  type NimConfig,
+  type NimMessage,
+  type NimResponse,
+  type NimToolCall,
+  type NimToolDef,
+} from "./nim-client";
 export { ToolWrapper, type ToolDefinition, type ToolExecutionResult } from "./tool-wrapper";
 export { CheckpointHooks, type CheckpointData } from "./checkpoint-hooks";
 export {
@@ -13,3 +21,15 @@ export {
   type PolicyEvaluation,
   type PolicyRule,
 } from "./policy-engine";
+export {
+  AgentLoop,
+  type AgentLoopConfig,
+  type AgentLoopResult,
+  type AgentTool,
+  type AgentSnapshotInput,
+  type AgentSnapshotResult,
+  type Snapshotter,
+  type SessionLike,
+  type BranchPersistenceCallback,
+  type ErrorSink,
+} from "./agent-loop";

@@ -196,10 +196,16 @@ importers:
       '@nemocognition/tracing':
         specifier: workspace:*
         version: link:../tracing
+      tar:
+        specifier: ^7.5.15
+        version: 7.5.15
       zod:
         specifier: ^3.24.0
         version: 3.25.76
     devDependencies:
+      '@types/tar':
+        specifier: ^7.0.87
+        version: 7.0.87
       tsup:
         specifier: ^8.5.0
         version: 8.5.1(jiti@2.7.0)(postcss@8.5.14)(tsx@4.22.0)(typescript@5.9.3)
@@ -253,6 +259,9 @@ importers:
       '@nemocognition/core':
         specifier: workspace:*
         version: link:../core
+      '@nemocognition/recovery':
+        specifier: workspace:*
+        version: link:../recovery
       zod:
         specifier: ^3.24.0
         version: 3.25.76

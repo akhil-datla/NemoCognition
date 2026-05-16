@@ -2,7 +2,8 @@ services:
   postgres:
     image: postgres:16-alpine
     ports:
-      - "5432:5432"
+      # Use  host :5433 when another Postgres already owns :5432 (e.g. Homebrew).
+      - "5433:5432"
     environment:
       POSTGRES_DB: nemocognition
       POSTGRES_USER: nemocognition

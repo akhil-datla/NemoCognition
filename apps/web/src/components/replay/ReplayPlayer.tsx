@@ -35,6 +35,14 @@ export function ReplayPlayer({
     ? nodes.filter((n) => n.branchId === selectedBranchId)
     : nodes;
 
+  /** After recovery or when toggling branch filter, keep scrubber index aligned with the selected node. */
+  useEffect(() => {
+    if (selectedNodeId == null) return;
+    const list = selectedBranchId ? nodes.filter((n) => n.branchId === selectedBranchId) : nodes;
+    const idx = list.findIndex((n) => n.nodeId === selectedNodeId);
+    if (idx >= 0) setActiveIndex(idx);
+  }, [selectedNodeId, selectedBranchId, nodes]);
+
   const activeNode = activeIndex >= 0 && activeIndex < filteredNodes.length
     ? filteredNodes[activeIndex]
     : null;
@@ -211,6 +219,7 @@ export function ReplayPlayer({
               node={selectedNode}
               policyEvent={selectedPolicyEvent}
               onClose={handleCloseInspector}
+              onRecoveryStarted={() => setSelectedBranchId(null)}
             />
           </div>
         )}

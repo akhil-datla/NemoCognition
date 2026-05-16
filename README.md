@@ -53,7 +53,7 @@ NemoCognition records every action an agent takes — model calls, tool calls, O
 
 ```bash
 pnpm install
-docker compose up -d postgres phoenix   # postgres :5432, phoenix :6006/:4317
+docker compose up -d postgres phoenix redis   # postgres on host :5433, phoenix :6006/:4317
 pnpm db:migrate                          # apply Drizzle migrations
 pnpm dev                                 # next dev on :3000
 ```
@@ -63,7 +63,7 @@ Open <http://localhost:3000>. The terminal screen is the entry; the demo run is 
 Run the worker in another shell to process storyboard jobs:
 
 ```bash
-DATABASE_URL=postgres://nemocognition:nemocognition_dev@localhost:5432/nemocognition pnpm worker
+DATABASE_URL=postgres://nemocognition:nemocognition_dev@localhost:5433/nemocognition pnpm worker
 ```
 
 ## Recording a session

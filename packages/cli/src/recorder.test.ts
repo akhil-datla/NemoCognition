@@ -43,6 +43,23 @@ describe("SessionRecorder", () => {
     expect(result.tokenCount.input).toBe(50);
   });
 
+  it("captures reasoning_content in outputMessage when content is null", async () => {
+    mockNimChat.mockResolvedValueOnce({
+      content: null,
+      reasoningContent: "Planning to call list_directory.",
+      toolCalls: [{ id: "tc1", name: "list_directory", arguments: '{"path":"."}' }],
+      tokenCount: { input: 10, output: 5 },
+      finishReason: "tool_calls",
+    });
+
+    const session = recorder.start({ title: "Test", userTask: "test" });
+    await session.chatMessages([{ role: "user", content: "go" }]);
+
+    const end = session.getEvents().find((e) => e.type === "model_call_end");
+    const outputMessage = end?.attributes.outputMessage as { content?: string } | undefined;
+    expect(outputMessage?.content).toContain("Planning to call list_directory");
+  });
+
   it("registers and executes tools during a session", async () => {
     const session = recorder.start({ title: "Test", userTask: "test" });
 

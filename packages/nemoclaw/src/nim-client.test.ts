@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { NimClient, type NimConfig, type NimMessage, type NimResponse } from "./nim-client";
+import {
+  NimClient,
+  formatModelOutputForCapture,
+  type NimMessage,
+} from "./nim-client";
 
 describe("NimClient", () => {
   let client: NimClient;
@@ -81,5 +85,71 @@ describe("NimClient", () => {
   it("reports provider as nvidia and model as nemotron", () => {
     expect(client.provider).toBe("nvidia");
     expect(client.model).toBe("nemotron");
+  });
+
+  it("parses reasoning_content when content is null and there are no tool calls", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        choices: [{
+          message: {
+            role: "assistant",
+            content: null,
+            reasoning_content: "Thinking step by step…",
+          },
+          finish_reason: "stop",
+        }],
+        usage: { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 },
+      }),
+    });
+
+    const result = await client.chat([{ role: "user", content: "Hi" }]);
+    expect(result.content).toBe("Thinking step by step…");
+    expect(result.reasoningContent).toBe("Thinking step by step…");
+  });
+
+  it("exposes reasoning_content separately when tool_calls are present", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        choices: [{
+          message: {
+            role: "assistant",
+            content: null,
+            reasoning_content: "I will list the directory first.",
+            tool_calls: [{
+              id: "call_1",
+              type: "function",
+              function: { name: "list_directory", arguments: '{"path":"apps/web/src/lib"}' },
+            }],
+          },
+          finish_reason: "tool_calls",
+        }],
+        usage: { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 },
+      }),
+    });
+
+    const result = await client.chat([{ role: "user", content: "List lib" }], {
+      tools: [{
+        type: "function",
+        function: { name: "list_directory", description: "List dir", parameters: {} },
+      }],
+    });
+
+    expect(result.content).toBeNull();
+    expect(result.reasoningContent).toBe("I will list the directory first.");
+    expect(result.toolCalls).toHaveLength(1);
+    expect(formatModelOutputForCapture(result)).toBe("I will list the directory first.");
+  });
+});
+
+describe("formatModelOutputForCapture", () => {
+  it("formats tool calls when content and reasoning are empty", () => {
+    const text = formatModelOutputForCapture({
+      content: null,
+      toolCalls: [{ id: "c1", name: "read_file", arguments: '{"path":"x"}' }],
+    });
+    expect(text).toContain("Tool call: read_file");
+    expect(text).toContain('"path": "x"');
   });
 });

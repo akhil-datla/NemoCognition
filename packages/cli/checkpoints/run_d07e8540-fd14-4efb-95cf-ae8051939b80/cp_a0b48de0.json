@@ -1,0 +1,17 @@
+{
+  "cpId": "cp_a0b48de0",
+  "runId": "run_d07e8540-fd14-4efb-95cf-ae8051939b80",
+  "branchId": "branch_recovery_58438e78",
+  "nodeId": "chatcmpl-tool-a260bb71ae281a21",
+  "kind": "post_tool",
+  "checksum": "c17d588d176f321e3fc2373559b3e96f5c03d20b7b368a32ab9fbe7abcefa537",
+  "fileCount": 1,
+  "files": [
+    {
+      "path": ".env.example",
+      "size": 265
+    }
+  ],
+  "sandboxRoot": "/Users/rohanjp/NemoCognition-1/packages/cli/sandboxes/run_d07e8540-fd14-4efb-95cf-ae8051939b80",
+  "createdAt": "2026-05-16T19:27:51.738Z"
+}

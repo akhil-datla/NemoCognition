@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import type { ExecutionNode, PolicyDecisionEvent } from "@nemocognition/core";
 import { CodebaseTab } from "./CodebaseTab";
@@ -20,6 +20,8 @@ interface NodeInspectorProps {
   node: ExecutionNode;
   policyEvent?: PolicyDecisionEvent | null;
   onClose: () => void;
+  /** Called when a recovery branch is created; parent should clear branch filter so the new lane is visible. */
+  onRecoveryStarted?: (newBranchId: string) => void;
 }
 
 interface ChatMessage {
@@ -44,7 +46,7 @@ function pretty(v: unknown): string {
   }
 }
 
-export function NodeInspector({ node, policyEvent, onClose }: NodeInspectorProps) {
+export function NodeInspector({ node, policyEvent, onClose, onRecoveryStarted }: NodeInspectorProps) {
   const payload = (node.payload ?? {}) as Record<string, unknown>;
 
   const isModelCall = node.type === "model_call";
@@ -193,7 +195,12 @@ export function NodeInspector({ node, policyEvent, onClose }: NodeInspectorProps
             )}
 
             {node.status === "failure" && (
-              <RecoveryPanel runId={node.runId} failedNodeId={node.nodeId} />
+              <RecoveryPanel
+                key={node.nodeId}
+                runId={node.runId}
+                failedNodeId={node.nodeId}
+                onRecoveryStarted={onRecoveryStarted}
+              />
             )}
           </div>
         )}
@@ -328,6 +335,7 @@ export function NodeInspector({ node, policyEvent, onClose }: NodeInspectorProps
 interface RecoveryPanelProps {
   runId: string;
   failedNodeId: string;
+  onRecoveryStarted?: (newBranchId: string) => void;
 }
 
 interface RecoveryResponse {
@@ -344,11 +352,22 @@ interface RecoveryResponse {
  * Auto-refreshes the page every 3s so the new branch's nodes appear in the
  * graph as they're persisted.
  */
-function RecoveryPanel({ runId, failedNodeId }: RecoveryPanelProps) {
+function RecoveryPanel({ runId, failedNodeId, onRecoveryStarted }: RecoveryPanelProps) {
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<RecoveryResponse | null>(null);
+  const refreshIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  /** Must clear so navigating away mid-refresh does not leak intervals. */
+  useEffect(() => {
+    return () => {
+      if (refreshIntervalRef.current) {
+        clearInterval(refreshIntervalRef.current);
+        refreshIntervalRef.current = null;
+      }
+    };
+  }, []);
 
   const handleClick = async () => {
     setSubmitting(true);
@@ -365,14 +384,21 @@ function RecoveryPanel({ runId, failedNodeId }: RecoveryPanelProps) {
       }
       const data = (await r.json()) as RecoveryResponse;
       setResult(data);
+      // Clear branch filter first — recovery nodes live on branch_recovery_* and
+      // are hidden while a single branch is selected, which feels like a no-op.
+      onRecoveryStarted?.(data.branchId);
       // Pull the freshly-inserted recovery branch into the graph immediately,
       // then keep refreshing for ~30s to surface nodes as they're written.
-      router.refresh();
+      await router.refresh();
+      if (refreshIntervalRef.current) clearInterval(refreshIntervalRef.current);
       let ticks = 0;
-      const interval = setInterval(() => {
+      refreshIntervalRef.current = setInterval(() => {
         ticks += 1;
-        router.refresh();
-        if (ticks >= 10) clearInterval(interval);
+        void router.refresh();
+        if (ticks >= 10) {
+          if (refreshIntervalRef.current) clearInterval(refreshIntervalRef.current);
+          refreshIntervalRef.current = null;
+        }
       }, 3000);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -402,7 +428,7 @@ function RecoveryPanel({ runId, failedNodeId }: RecoveryPanelProps) {
           </p>
         )}
         <p className="text-[11px] text-[var(--color-text-subtle)]">
-          Watching for new nodes — they&apos;ll appear as the agent runs.
+          Branch filter was reset to show all branches so the new lane is visible. New nodes appear as the agent runs.
         </p>
       </div>
     );

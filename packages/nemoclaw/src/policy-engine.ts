@@ -85,15 +85,24 @@ function globToRegExp(pattern: string): RegExp {
   return new RegExp("^" + p + "$");
 }
 
+// Matches actual dotenv-secret files: `.env`, `.env.local`, `.env.production`,
+// `.env.development`, `.env.test`, `.env.staging`, `.env.dev`, `.env.prod`
+// — anywhere in the tree. Does NOT match committed templates like
+// `.env.example`, `.env.template`, `.env.sample`, which agents need to be
+// able to read AND write as the canonical recovery path when the real
+// `.env` is denied.
+const DOTENV_SECRET_PATTERN =
+  "(^|/)\\.env(\\.(local|development|production|test|staging|dev|prod))?$";
+
 export const DEFAULT_POLICY: PolicyConfig = {
   rules: [
     {
       id: "deny_dotenv_read",
       actionType: "file_read",
-      pattern: "**/.env*",
-      matches: globMatcher("**/.env*"),
+      pattern: DOTENV_SECRET_PATTERN,
+      matches: regexMatcher(DOTENV_SECRET_PATTERN),
       decision: "deny",
-      reason: "Environment files may contain secrets",
+      reason: "Environment files may contain secrets (read .env.example for templates instead)",
     },
     {
       id: "deny_credentials_read",
@@ -114,10 +123,10 @@ export const DEFAULT_POLICY: PolicyConfig = {
     {
       id: "deny_dotenv_write",
       actionType: "file_write",
-      pattern: "**/.env*",
-      matches: globMatcher("**/.env*"),
+      pattern: DOTENV_SECRET_PATTERN,
+      matches: regexMatcher(DOTENV_SECRET_PATTERN),
       decision: "deny",
-      reason: "Environment files must not be overwritten by the agent",
+      reason: "Environment files must not be overwritten by the agent (write .env.example as a template instead)",
     },
     {
       id: "deny_git_write",

@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { mkdtempSync, rmSync, existsSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { AgentLoop } from "@nemocognition/nemoclaw";
 import { SessionRecorder } from "./recorder";
+import { buildAgentTools } from "./default-tools";
+import { snapper } from "./filesystem-snapper";
 import { InMemoryStore } from "@nemocognition/db";
 import {
   handleImportRun,
@@ -152,6 +158,69 @@ describe("End-to-end: CLI recorder → API import → graph + storyboard", () =>
     } finally {
       await new Promise<void>((r) => ph.close(() => r()));
       await new Promise<void>((r) => api.close(() => r()));
+    }
+  });
+
+  it("`agent` mode: SessionRecorder + AgentLoop runs a Nemoclaw task end-to-end with autonomous rollback", async () => {
+    // The exact wiring `bin.ts agent <task>` uses.
+    const sandboxRoot = mkdtempSync(path.join(os.tmpdir(), "nemoclaw-agent-it-"));
+    try {
+      const recorder = new SessionRecorder({
+        nimEndpoint: "x",
+        nimApiKey: "x",
+        nimModel: "x",
+        phoenixEndpoint: "http://unused",
+        nimChat: vi
+          .fn()
+          // Turn 1: agent wants to write .env (will be denied → autonomous fork).
+          .mockResolvedValueOnce({
+            content: null,
+            toolCalls: [
+              { id: "c1", name: "write_file", arguments: JSON.stringify({ path: ".env", content: "evil" }) },
+            ],
+            tokenCount: { input: 5, output: 5 },
+            finishReason: "tool_calls",
+          })
+          // Turn 2 (recovery branch): agent finishes the task safely.
+          .mockResolvedValueOnce({
+            content: "Done — wrote NOTES.md instead",
+            toolCalls: [
+              { id: "c2", name: "write_file", arguments: JSON.stringify({ path: "NOTES.md", content: "ok" }) },
+            ],
+            tokenCount: { input: 5, output: 5 },
+            finishReason: "tool_calls",
+          })
+          .mockResolvedValueOnce({
+            content: "All green.",
+            tokenCount: { input: 5, output: 5 },
+            finishReason: "stop",
+          }),
+        fetch: fetchMock,
+      });
+      const session = recorder.start({ title: "agent it", userTask: "write something" });
+
+      const loop = new AgentLoop({
+        session,
+        tools: buildAgentTools(sandboxRoot),
+        sandboxRoot,
+        snapshotter: snapper,
+      });
+      const result = await loop.run("write something");
+
+      expect(result.status).toBe("completed");
+      expect(result.autoRecoveriesUsed).toBe(1);
+      // The denied .env was never written; the recovery branch's allowed
+      // write landed.
+      expect(existsSync(path.join(sandboxRoot, ".env"))).toBe(false);
+      expect(existsSync(path.join(sandboxRoot, "NOTES.md"))).toBe(true);
+
+      const events = session.getEvents();
+      const types = events.map((e) => e.type);
+      expect(types).toContain("policy_deny");
+      expect(types).toContain("branch_start");
+      expect(types).toContain("tool_call_start"); // the allowed NOTES.md write
+    } finally {
+      rmSync(sandboxRoot, { recursive: true, force: true });
     }
   });
 
