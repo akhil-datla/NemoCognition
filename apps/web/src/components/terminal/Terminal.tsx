@@ -45,25 +45,30 @@ function formatEventLabel(ev: { type: string; attributes?: Record<string, unknow
   }
 }
 
-const WELCOME = [
-  "╔══════════════════════════════════════════════════════════════╗",
-  "║         NemoClaw Policy Replay Lab  v0.1.0                  ║",
-  "║         Visual Execution • Failure • Recovery Debugger       ║",
-  "╚══════════════════════════════════════════════════════════════╝",
-  "",
-  "  Commands:",
-  "    nemoclaw run <task>    Start a new NemoClaw session",
-  "    nemoclaw list          Show all sessions",
-  "    nemoclaw replay <id>   Open replay player for a session",
-  "    nemoclaw demo          Load demo session with policy failure",
-  "    help                   Show this message",
-  "    clear                  Clear terminal",
-  "",
+// ASCII title rendered as a single <pre> below — keeps figlet's exact cell
+// metrics regardless of which monospaced font Tailwind picks. Don't reformat;
+// trailing spaces matter.
+const NEMOCOGNITION_BANNER = ` _   _                       ____                  _ _   _             
+| \\ | | ___ _ __ ___   ___  / ___|___   __ _ _ __ (_) |_(_) ___  _ __  
+|  \\| |/ _ \\ '_ \` _ \\ / _ \\| |   / _ \\ / _\` | '_ \\| | __| |/ _ \\| '_ \\ 
+| |\\  |  __/ | | | | | (_) | |__| (_) | (_| | | | | | |_| | (_) | | | |
+|_| \\_|\\___|_| |_| |_|\\___/ \\____\\___/ \\__, |_| |_|_|\\__|_|\\___/|_| |_|
+                                       |___/                           `;
+
+const WELCOME: { type: TerminalLine["type"]; text: string }[] = [
+  { type: "system", text: "  Commands" },
+  { type: "system", text: "    - nemoclaw run <task>    Start a new NemoClaw session" },
+  { type: "system", text: "    - nemoclaw list          Show all sessions" },
+  { type: "system", text: "    - nemoclaw replay <id>   Open replay player for a session" },
+  { type: "system", text: "    - nemoclaw demo          Load demo session with policy failure" },
+  { type: "system", text: "    - help                   Show this message" },
+  { type: "system", text: "    - clear                  Clear terminal" },
+  { type: "system", text: "" },
 ];
 
 export function Terminal() {
   const [lines, setLines] = useState<TerminalLine[]>(() =>
-    WELCOME.map((text, i) => ({ id: i, type: "system" as const, text }))
+    WELCOME.map((l, i) => ({ id: i, type: l.type, text: l.text }))
   );
   const [input, setInput] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -94,7 +99,7 @@ export function Terminal() {
       }
 
       if (command === "help") {
-        addLines(WELCOME.map((text) => ({ type: "system" as const, text })));
+        addLines(WELCOME);
         return;
       }
 
@@ -224,16 +229,46 @@ export function Terminal() {
 
   return (
     <div
-      className="flex flex-col h-screen bg-[var(--color-bg)] p-4 cursor-text"
+      className="flex flex-col h-screen cursor-text"
       onClick={() => inputRef.current?.focus()}
     >
-      <div className="flex-1 overflow-y-auto font-mono text-sm leading-relaxed">
+      <div className="flex items-center justify-between px-8 py-4 border-b border-[var(--color-border)]">
+        <div className="flex items-center gap-3">
+          <span className="text-sm font-medium text-[var(--color-text)]">NemoCognition</span>
+          <span className="h-3 w-px bg-[var(--color-border-strong)]" />
+          <span className="text-xs text-[var(--color-text-muted)]">Terminal</span>
+        </div>
+        <a
+          href="/runs"
+          className="text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors"
+        >
+          Sessions →
+        </a>
+      </div>
+      <div className="flex-1 flex flex-col overflow-hidden px-8 py-6">
+      <div className="flex-1 overflow-y-auto font-mono text-[13px] leading-relaxed">
+          {/* NemoCognition figlet banner — NVIDIA green wordmark with a
+           * soft phosphor halo. The single bright accent on the page. */}
+          <pre
+            aria-label="NemoCognition"
+            className="text-[var(--color-accent)] mb-6 select-none"
+            style={{
+              fontFamily:
+                "ui-monospace, SFMono-Regular, Menlo, Monaco, \"Liberation Mono\", monospace",
+              fontSize: "12px",
+              lineHeight: 1,
+              textShadow:
+                "0 0 12px rgba(118, 185, 0, 0.35), 0 0 2px rgba(148, 214, 0, 0.6)",
+            }}
+          >
+            {NEMOCOGNITION_BANNER}
+          </pre>
         {lines.map((line) => (
           <div
             key={line.id}
             className={
               line.type === "input"
-                ? "text-[var(--color-accent)]"
+                ? "text-[var(--color-text)]"
                 : line.type === "error"
                 ? "text-[var(--color-failure)]"
                 : line.type === "system"
@@ -246,18 +281,19 @@ export function Terminal() {
         ))}
         <div ref={bottomRef} />
       </div>
-      <form onSubmit={handleSubmit} className="flex items-center gap-2 pt-2 border-t border-[var(--color-border)]">
-        <span className="text-[var(--color-accent)] font-mono text-sm">$</span>
+      <form onSubmit={handleSubmit} className="flex items-center gap-2 pt-3 mt-3 border-t border-[var(--color-border)]">
+        <span className="text-[var(--color-success)] font-mono text-[13px]">›</span>
         <input
           ref={inputRef}
           type="text"
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          className="flex-1 bg-transparent text-[var(--color-text)] font-mono text-sm outline-none"
-          placeholder="Type a command..."
+          className="flex-1 bg-transparent text-[var(--color-text)] font-mono text-[13px] outline-none placeholder:text-[var(--color-text-subtle)]"
+          placeholder="nemoclaw run <task>  ·  type 'help' for commands"
           autoFocus
         />
       </form>
+      </div>
     </div>
   );
 }

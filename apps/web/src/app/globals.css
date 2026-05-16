@@ -1,27 +1,129 @@
 @import "tailwindcss";
 
+/*
+ * NemoCognition — Graphite theme · v3
+ *
+ * Restrained "AI infrastructure" aesthetic. Charcoal/graphite base, off-white
+ * type, NVIDIA green reserved for genuine signal (active, success, accents).
+ * No glow, no scanlines, no flicker, no all-caps neon. Inspired by Linear,
+ * Vercel, NVIDIA Omniverse, and the Anthropic console.
+ *
+ * Variable names are preserved from earlier theme passes so every component
+ * auto-themes; only values change.
+ */
+
 :root {
-  --color-bg: #0a0a0f;
-  --color-bg-secondary: #12121a;
-  --color-bg-tertiary: #1a1a26;
-  --color-border: #2a2a3a;
-  --color-text: #e4e4ef;
-  --color-text-muted: #8888a0;
-  --color-success: #22c55e;
-  --color-failure: #ef4444;
-  --color-risky: #eab308;
-  --color-memory: #3b82f6;
-  --color-branch: #a855f7;
-  --color-accent: #06b6d4;
+  /* ── Surfaces (graphite) ──────────────────────────────────────────── */
+  --color-bg: #0b0f12;
+  --color-bg-secondary: #0f1418;
+  --color-bg-tertiary: #141a20;
+
+  /* Borders are translucent so they sit naturally on any nested surface. */
+  --color-border: rgba(255, 255, 255, 0.06);
+  --color-border-strong: rgba(255, 255, 255, 0.10);
+
+  /* ── Typography ───────────────────────────────────────────────────── */
+  --color-text: #c7d0d9;          /* primary off-white */
+  --color-text-muted: #6e7681;    /* graphite gray */
+  --color-text-subtle: #4a5158;   /* almost-invisible, for hairline labels */
+
+  /* ── Semantic status (muted by default; saturate only on active) ─── */
+  --color-success: #76b900;       /* NVIDIA brand green */
+  --color-failure: #f87171;       /* muted red */
+  --color-risky: #f59e0b;         /* muted amber */
+  --color-memory: #64a6ff;        /* muted info blue */
+  --color-branch: #a78bfa;        /* muted violet */
+
+  /* ── Accent (NVIDIA green; used sparingly) ────────────────────────── */
+  --color-accent: #76b900;
+  --color-accent-bright: #94d600; /* hover only */
+  --color-accent-muted: #4f7c00;  /* dimmed for playback chrome */
+  --color-accent-dim: rgba(118, 185, 0, 0.12);
+
+  /* ── Fonts (loaded by next/font in layout.tsx) ────────────────────── */
+  --font-sans: var(--font-inter), "Inter", "Inter Tight", -apple-system,
+    BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --font-mono: var(--font-plex-mono), "IBM Plex Mono", "JetBrains Mono",
+    "Menlo", ui-monospace, monospace;
 }
 
+html,
 body {
   background: var(--color-bg);
   color: var(--color-text);
-  font-family: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+  font-family: var(--font-sans);
+  font-feature-settings: "cv11", "ss01", "ss03";
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
+body {
+  position: relative;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* Very subtle dot grid for depth. ~3% white, 32px gap — almost invisible
+ * unless you look for it. No glow, no scanlines. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image: radial-gradient(
+    rgba(255, 255, 255, 0.025) 1px,
+    transparent 1px
+  );
+  background-size: 32px 32px;
+  mask-image: radial-gradient(
+    ellipse 90% 80% at 50% 0%,
+    black 30%,
+    transparent 100%
+  );
+}
+
+body > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* Scrollbars — neutral, thin. */
 * {
   scrollbar-width: thin;
-  scrollbar-color: var(--color-border) transparent;
+  scrollbar-color: rgba(255, 255, 255, 0.08) transparent;
+}
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+}
+*::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.14); }
+
+::selection {
+  background: rgba(118, 185, 0, 0.22);
+  color: var(--color-text);
+}
+
+/* ── Utilities (opt-in by components) ─────────────────────────────── */
+
+/* Surface chrome: a clean translucent panel. No glow, no inner highlight.
+ * Used for cards / side panels / inspector. */
+.surface {
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+}
+.surface-raised {
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border-strong);
+}
+
+/* Hairline label style for tiny eyebrow / metadata text. Lowercase only —
+ * UPPERCASE TRACKING is reserved for buttons that need to read as actions. */
+.eyebrow {
+  font-size: 11px;
+  letter-spacing: 0;
+  color: var(--color-text-muted);
 }

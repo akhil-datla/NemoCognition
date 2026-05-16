@@ -41,10 +41,11 @@ export function ReplayControls({
   const activeNode = activeIndex >= 0 && activeIndex < nodes.length ? nodes[activeIndex] : null;
 
   return (
-    <div className="bg-[var(--color-bg-secondary)] border-t border-[var(--color-border)] px-4 py-3">
+    <div className="border-t border-[var(--color-border)] px-6 py-3">
       {/* Progress bar */}
       <div className="mb-3 relative">
-        <div className="h-1.5 bg-[var(--color-bg-tertiary)] rounded-full overflow-hidden cursor-pointer"
+        <div
+          className="h-1 bg-white/5 rounded-full overflow-hidden cursor-pointer"
           onClick={(e) => {
             const rect = e.currentTarget.getBoundingClientRect();
             const pct = (e.clientX - rect.left) / rect.width;
@@ -52,7 +53,7 @@ export function ReplayControls({
           }}
         >
           <div
-            className="h-full bg-[var(--color-accent)] rounded-full transition-all duration-200"
+            className="h-full bg-[var(--color-accent-muted)] rounded-full transition-all duration-200"
             style={{ width: `${progress}%` }}
           />
         </div>
@@ -61,7 +62,7 @@ export function ReplayControls({
           n.status === "failure" ? (
             <div
               key={n.nodeId}
-              className="absolute top-0 w-1.5 h-1.5 bg-[var(--color-failure)] rounded-full -translate-y-0 cursor-pointer"
+              className="absolute top-0 w-1 h-1 bg-[var(--color-failure)] rounded-full cursor-pointer"
               style={{ left: `${((i + 0.5) / nodes.length) * 100}%` }}
               onClick={() => onScrub(i)}
               title={n.title}
@@ -73,7 +74,7 @@ export function ReplayControls({
           n.type === "branch_start" ? (
             <div
               key={`br-${n.nodeId}`}
-              className="absolute top-0 w-1.5 h-1.5 bg-[var(--color-branch)] rounded-full -translate-y-0 cursor-pointer"
+              className="absolute top-0 w-1 h-1 bg-[var(--color-branch)] rounded-full cursor-pointer"
               style={{ left: `${((i + 0.5) / nodes.length) * 100}%` }}
               onClick={() => onScrub(i)}
               title={n.title}
@@ -84,51 +85,54 @@ export function ReplayControls({
 
       <div className="flex items-center justify-between">
         {/* Left: playback controls */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1">
           <button
             onClick={onPrev}
             disabled={activeIndex <= 0}
-            className="w-8 h-8 flex items-center justify-center rounded text-[var(--color-text-muted)] hover:text-[var(--color-text)] disabled:opacity-30 transition-colors"
+            className="w-8 h-8 flex items-center justify-center rounded-md text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-white/5 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+            aria-label="Previous"
           >
             ⏮
           </button>
           <button
             onClick={isPlaying ? onPause : onPlay}
-            className="w-10 h-10 flex items-center justify-center rounded-full bg-[var(--color-accent)]/20 text-[var(--color-accent)] hover:bg-[var(--color-accent)]/30 transition-colors text-lg"
+            className="w-8 h-8 flex items-center justify-center rounded-full bg-[var(--color-accent-muted)] text-black hover:bg-[var(--color-accent)] transition-colors text-xs"
+            aria-label={isPlaying ? "Pause" : "Play"}
           >
             {isPlaying ? "⏸" : "▶"}
           </button>
           <button
             onClick={onNext}
             disabled={activeIndex >= nodes.length - 1}
-            className="w-8 h-8 flex items-center justify-center rounded text-[var(--color-text-muted)] hover:text-[var(--color-text)] disabled:opacity-30 transition-colors"
+            className="w-8 h-8 flex items-center justify-center rounded-md text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-white/5 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+            aria-label="Next"
           >
             ⏭
           </button>
-          <div className="flex items-center gap-1 ml-2">
+          <div className="flex items-center gap-0.5 ml-3">
             {[0.5, 1, 2].map((speed) => (
               <button
                 key={speed}
                 onClick={() => onSpeedChange(speed)}
-                className={`text-[10px] px-2 py-0.5 rounded transition-colors ${
+                className={`text-[11px] px-1.5 py-0.5 rounded transition-colors ${
                   playbackSpeed === speed
-                    ? "bg-[var(--color-accent)]/20 text-[var(--color-accent)]"
+                    ? "text-[var(--color-text)] bg-white/8"
                     : "text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
                 }`}
               >
-                {speed}x
+                {speed}×
               </button>
             ))}
           </div>
         </div>
 
         {/* Center: current node info */}
-        <div className="text-center text-xs text-[var(--color-text-muted)]">
+        <div className="text-center text-xs text-[var(--color-text-muted)] truncate px-4">
           {activeNode ? (
             <span>
-              <span className="text-[var(--color-text)]">{activeIndex + 1}</span>
-              <span> / {nodes.length}</span>
-              <span className="mx-2">•</span>
+              <span className="text-[var(--color-text)] font-mono">{activeIndex + 1}</span>
+              <span className="text-[var(--color-text-subtle)] font-mono"> / {nodes.length}</span>
+              <span className="mx-2 text-[var(--color-text-subtle)]">·</span>
               <span className="text-[var(--color-text)]">{activeNode.title}</span>
             </span>
           ) : (
@@ -141,7 +145,7 @@ export function ReplayControls({
           {hasFailure && (
             <button
               onClick={onJumpToFailure}
-              className="text-xs px-3 py-1.5 rounded border border-[var(--color-failure)]/40 text-[var(--color-failure)] hover:bg-[var(--color-failure)]/10 transition-colors"
+              className="text-xs px-3 py-1.5 rounded-md text-[var(--color-text-muted)] hover:text-[var(--color-failure)] hover:bg-white/5 transition-colors"
             >
               Jump to failure
             </button>
@@ -149,7 +153,7 @@ export function ReplayControls({
           <select
             value={selectedBranchId ?? "all"}
             onChange={(e) => onBranchChange(e.target.value === "all" ? null : e.target.value)}
-            className="text-xs bg-[var(--color-bg)] border border-[var(--color-border)] rounded px-2 py-1.5 text-[var(--color-text)] outline-none"
+            className="text-xs bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-md px-2 py-1.5 text-[var(--color-text)] outline-none hover:border-[var(--color-border-strong)] transition-colors"
           >
             <option value="all">All branches</option>
             {branches.map((b) => (

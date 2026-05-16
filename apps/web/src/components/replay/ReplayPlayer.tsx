@@ -140,30 +140,34 @@ export function ReplayPlayer({
   }, []);
 
   return (
-    <div className="h-screen flex flex-col bg-[var(--color-bg)]">
+    <div className="h-screen flex flex-col">
       {/* Top bar */}
-      <header className="flex items-center justify-between px-4 py-2 border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)]">
-        <div className="flex items-center gap-3">
+      <header className="flex items-center justify-between px-6 py-4 border-b border-[var(--color-border)]">
+        <div className="flex items-center gap-4">
           <Link
             href="/runs"
-            className="text-[var(--color-text-muted)] hover:text-[var(--color-accent)] transition-colors text-sm"
+            className="text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors"
           >
-            ←
+            ← Sessions
           </Link>
+          <span aria-hidden className="h-4 w-px bg-[var(--color-border-strong)]" />
           <div>
-            <h1 className="text-sm font-medium text-[var(--color-text)]">{runTitle}</h1>
-            <span className="text-[10px] text-[var(--color-text-muted)] font-mono">{runId}</span>
+            <h1 className="text-sm font-medium text-[var(--color-text)] leading-tight">
+              {runTitle}
+            </h1>
+            <span className="text-[11px] text-[var(--color-text-subtle)] font-mono">
+              {runId}
+            </span>
           </div>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-4 text-[11px] text-[var(--color-text-muted)]">
           {branches.length > 1 && (
-            <span className="text-[10px] px-2 py-0.5 rounded-full bg-[var(--color-branch)]/20 text-[var(--color-branch)] border border-[var(--color-branch)]/30">
+            <span className="flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-branch)]" />
               {branches.length} branches
             </span>
           )}
-          <span className="text-[10px] text-[var(--color-text-muted)]">
-            {nodes.length} nodes
-          </span>
+          <span>{nodes.length} nodes</span>
         </div>
       </header>
 
@@ -182,10 +186,11 @@ export function ReplayPlayer({
 
             {/* Play overlay */}
             {showOverlay && (
-              <div className="absolute inset-0 flex items-center justify-center bg-[var(--color-bg)]/60 backdrop-blur-sm z-10">
+              <div className="absolute inset-0 flex items-center justify-center bg-[var(--color-bg)]/70 backdrop-blur-sm z-10">
                 <button
                   onClick={handlePlay}
-                  className="w-20 h-20 rounded-full bg-[var(--color-accent)]/20 border-2 border-[var(--color-accent)] flex items-center justify-center text-[var(--color-accent)] text-3xl hover:bg-[var(--color-accent)]/30 hover:scale-110 transition-all"
+                  className="w-16 h-16 rounded-full bg-[var(--color-accent)] text-black flex items-center justify-center text-xl hover:bg-[var(--color-accent-bright)] transition-colors"
+                  aria-label="Play"
                 >
                   ▶
                 </button>

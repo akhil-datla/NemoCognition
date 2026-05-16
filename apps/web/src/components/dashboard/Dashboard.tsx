@@ -8,9 +8,8 @@ import { SessionCard } from "./SessionCard";
 export function Dashboard({ runs }: { runs: Run[] }) {
   const [filter, setFilter] = useState<string>("all");
 
-  const filtered = filter === "all"
-    ? runs
-    : runs.filter((r) => r.status === filter);
+  const filtered =
+    filter === "all" ? runs : runs.filter((r) => r.status === filter);
 
   const counts = {
     all: runs.length,
@@ -20,51 +19,75 @@ export function Dashboard({ runs }: { runs: Run[] }) {
   };
 
   return (
-    <div className="min-h-screen bg-[var(--color-bg)]">
-      <header className="border-b border-[var(--color-border)] px-6 py-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <Link href="/" className="text-[var(--color-accent)] hover:text-[var(--color-text)] transition-colors">
-              <span className="font-mono text-sm">←</span>
+    <div className="min-h-screen">
+      <header className="border-b border-[var(--color-border)]">
+        <div className="max-w-7xl mx-auto px-8 py-5 flex items-center justify-between">
+          <div className="flex items-center gap-5">
+            <Link
+              href="/"
+              className="text-sm text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors"
+            >
+              ← Back
             </Link>
+            <div className="h-5 w-px bg-[var(--color-border-strong)]" />
             <div>
-              <h1 className="text-lg font-semibold text-[var(--color-text)]">NemoClaw Sessions</h1>
-              <p className="text-xs text-[var(--color-text-muted)]">Policy replay debugger sessions</p>
+              <h1 className="text-[15px] font-medium text-[var(--color-text)] leading-tight">
+                Sessions
+              </h1>
+              <p className="text-xs text-[var(--color-text-muted)] mt-0.5">
+                Policy replay debugger
+              </p>
             </div>
           </div>
           <Link
             href="/"
-            className="text-xs px-3 py-1.5 rounded border border-[var(--color-accent)]/40 text-[var(--color-accent)] hover:bg-[var(--color-accent)]/10 transition-colors"
+            className="text-xs px-3 py-1.5 rounded-md border border-[var(--color-border-strong)] text-[var(--color-text)] hover:bg-white/5 hover:border-white/20 transition-colors"
           >
-            New Session
+            New session
           </Link>
         </div>
       </header>
 
-      <div className="px-6 py-4">
-        <div className="flex gap-2 mb-6">
-          {(["all", "running", "completed", "failed"] as const).map((status) => (
-            <button
-              key={status}
-              onClick={() => setFilter(status)}
-              className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${
-                filter === status
-                  ? "border-[var(--color-accent)] text-[var(--color-accent)] bg-[var(--color-accent)]/10"
-                  : "border-[var(--color-border)] text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
-              }`}
-            >
-              {status} ({counts[status]})
-            </button>
-          ))}
+      <div className="max-w-7xl mx-auto px-8 py-8">
+        <div className="flex gap-1 mb-8">
+          {(["all", "running", "completed", "failed"] as const).map((status) => {
+            const active = filter === status;
+            return (
+              <button
+                key={status}
+                onClick={() => setFilter(status)}
+                className={`text-xs px-3 py-1.5 rounded-md transition-colors capitalize ${
+                  active
+                    ? "bg-white/8 text-[var(--color-text)]"
+                    : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-white/5"
+                }`}
+              >
+                {status}
+                <span
+                  className={`ml-2 ${
+                    active
+                      ? "text-[var(--color-text-muted)]"
+                      : "text-[var(--color-text-subtle)]"
+                  }`}
+                >
+                  {counts[status]}
+                </span>
+              </button>
+            );
+          })}
         </div>
 
         {filtered.length === 0 ? (
-          <div className="text-center py-20 text-[var(--color-text-muted)]">
-            <p className="text-sm">No sessions found</p>
-            <p className="text-xs mt-2">Start a new session from the terminal</p>
+          <div className="text-center py-24">
+            <p className="text-sm text-[var(--color-text-muted)]">
+              No sessions yet
+            </p>
+            <p className="text-xs text-[var(--color-text-subtle)] mt-2">
+              Start a new session from the terminal
+            </p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
             {filtered.map((run) => (
               <SessionCard key={run.id} run={run} />
             ))}

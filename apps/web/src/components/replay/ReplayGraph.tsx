@@ -53,42 +53,68 @@ type ExecutionNodeData = Record<string, unknown> & {
 };
 
 function ExecutionNodeComponent({ data }: NodeProps<Node<ExecutionNodeData>>) {
-  const opacity = data.isVisible ? 1 : 0.15;
-  const scale = data.isActive ? 1.05 : 1;
-  const ring = data.isSelected
-    ? "ring-2 ring-[var(--color-accent)] ring-offset-2 ring-offset-[var(--color-bg)]"
-    : data.isActive
-    ? "ring-1 ring-white/30"
-    : "";
+  const opacity = data.isVisible ? 1 : 0.2;
+
+  const isFailure = data.status === "failure";
+  const isSuccess = data.status === "success";
+  const isBranch = data.status === "branch";
+
+  // Every status node carries its own tint at rest — completed → green,
+  // failure → red, branch → violet — so the graph reads as a heat map of
+  // outcomes. Neutral graphite is reserved for genuinely neutral types
+  // (memory updates, risky-but-not-failed, etc.).
+  const statusTinted = isSuccess || isFailure || isBranch;
+  const tinted = statusTinted || data.isActive || data.isSelected;
+
+  // The icon color always reflects the node's own status so a selected
+  // failure stays red — green highlights never override a real status.
+  const iconColor = isFailure
+    ? "var(--color-failure)"
+    : isSuccess
+    ? "var(--color-success)"
+    : isBranch
+    ? "var(--color-branch)"
+    : data.isActive || data.isSelected
+    ? "var(--color-accent)"
+    : "var(--color-text-subtle)";
+
+  // Selection border: keep the status color for status-tinted nodes
+  // (failure stays red, branch stays violet), use NVIDIA green only on
+  // neutral nodes that have nothing else to say.
+  const borderColor = data.isSelected
+    ? statusTinted
+      ? data.color
+      : "var(--color-accent)"
+    : tinted
+    ? `${data.color}40`
+    : "var(--color-border)";
 
   return (
     <div
-      className={`relative transition-all duration-300 ${ring}`}
-      style={{
-        opacity,
-        transform: `scale(${scale})`,
-      }}
+      className="relative transition-opacity duration-200"
+      style={{ opacity }}
     >
       <Handle type="target" position={Position.Top} className="!bg-transparent !border-0 !w-0 !h-0" />
       <div
-        className="rounded-lg border px-3 py-2 min-w-[200px] max-w-[260px]"
+        className="rounded-md px-3 py-2 min-w-[210px] max-w-[260px] transition-colors"
         style={{
-          backgroundColor: `${data.color}15`,
-          borderColor: `${data.color}50`,
+          backgroundColor: tinted
+            ? `${data.color}14`
+            : "var(--color-bg-secondary)",
+          borderWidth: data.isSelected ? 1.5 : 1,
+          borderStyle: "solid",
+          borderColor,
         }}
       >
         <div className="flex items-center gap-2 mb-1">
-          <span className="text-base" style={{ color: data.color }}>
+          <span className="text-sm leading-none" style={{ color: iconColor }}>
             {NODE_ICONS[data.type] ?? "●"}
           </span>
-          <span
-            className="text-xs font-medium truncate"
-            style={{ color: data.color }}
-          >
+          <span className="text-[12px] font-medium truncate text-[var(--color-text)]">
             {data.title}
           </span>
         </div>
-        <p className="text-[10px] text-[var(--color-text-muted)] line-clamp-2 leading-tight">
+        <p className="text-[11px] text-[var(--color-text-muted)] line-clamp-2 leading-snug">
           {data.summary}
         </p>
       </div>
@@ -108,12 +134,13 @@ interface ReplayGraphProps {
   onNodeClick: (nodeId: string) => void;
 }
 
+// Graphite palette — mirror globals.css. Used by graph tints/borders.
 const STATUS_COLORS: Record<string, string> = {
-  success: "#22c55e",
-  failure: "#ef4444",
-  risky: "#eab308",
-  memory: "#3b82f6",
-  branch: "#a855f7",
+  success: "#76b900",
+  failure: "#f87171",
+  risky: "#f59e0b",
+  memory: "#64a6ff",
+  branch: "#a78bfa",
 };
 
 export function ReplayGraph({ nodes, activeIndex, selectedNodeId, onNodeClick }: ReplayGraphProps) {
@@ -162,9 +189,9 @@ export function ReplayGraph({ nodes, activeIndex, selectedNodeId, onNodeClick }:
         animated: n.type === "branch_start",
         style: {
           stroke: n.branchId !== nodes.find((p) => p.nodeId === n.parentNodeId)?.branchId
-            ? "#a855f7"
-            : "#2a2a3a",
-          strokeWidth: 2,
+            ? "#a78bfa"
+            : "rgba(255,255,255,0.12)",
+          strokeWidth: 1.5,
         },
       }));
 
@@ -190,9 +217,9 @@ export function ReplayGraph({ nodes, activeIndex, selectedNodeId, onNodeClick }:
         maxZoom={2}
         proOptions={{ hideAttribution: true }}
       >
-        <Background color="#1a1a26" gap={20} />
+        <Background color="rgba(255,255,255,0.05)" gap={32} size={1} />
         <Controls
-          className="!bg-[var(--color-bg-secondary)] !border-[var(--color-border)] !rounded-lg [&>button]:!bg-[var(--color-bg-secondary)] [&>button]:!border-[var(--color-border)] [&>button]:!text-[var(--color-text-muted)] [&>button:hover]:!bg-[var(--color-bg-tertiary)]"
+          className="!bg-[var(--color-bg-secondary)] !border-[var(--color-border)] !rounded-md !shadow-none [&>button]:!bg-transparent [&>button]:!border-[var(--color-border)] [&>button]:!text-[var(--color-text-muted)] [&>button:hover]:!bg-white/5 [&>button:hover]:!text-[var(--color-text)]"
         />
       </ReactFlow>
     </div>

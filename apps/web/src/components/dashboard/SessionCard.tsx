@@ -3,11 +3,17 @@
 import Link from "next/link";
 import type { Run } from "@nemocognition/core";
 
-const STATUS_COLORS: Record<string, string> = {
-  pending: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30",
-  running: "bg-blue-500/20 text-blue-400 border-blue-500/30",
-  completed: "bg-green-500/20 text-green-400 border-green-500/30",
-  failed: "bg-red-500/20 text-red-400 border-red-500/30",
+// Status uses a single colored dot + label. The card itself stays neutral
+// so it almost disappears at rest — only hovered / failed cards earn extra
+// visual weight.
+const STATUS: Record<
+  string,
+  { label: string; dot: string; muted?: boolean }
+> = {
+  pending: { label: "Pending", dot: "bg-[var(--color-risky)]" },
+  running: { label: "Running", dot: "bg-[var(--color-success)]" },
+  completed: { label: "Completed", dot: "bg-[var(--color-text-subtle)]" },
+  failed: { label: "Failed", dot: "bg-[var(--color-failure)]" },
 };
 
 function timeAgo(dateStr: string): string {
@@ -21,25 +27,33 @@ function timeAgo(dateStr: string): string {
 }
 
 export function SessionCard({ run }: { run: Run }) {
+  const status = STATUS[run.status] ?? STATUS.completed;
+  const isFailed = run.status === "failed";
+
   return (
     <Link href={`/runs/${run.id}`} className="block group">
-      <div className="border border-[var(--color-border)] rounded-lg p-4 bg-[var(--color-bg-secondary)] hover:bg-[var(--color-bg-tertiary)] hover:border-[var(--color-accent)]/40 transition-all duration-200">
-        <div className="flex items-start justify-between mb-3">
-          <h3 className="font-medium text-[var(--color-text)] group-hover:text-[var(--color-accent)] transition-colors truncate mr-3">
+      <div
+        className={`rounded-lg p-5 transition-all duration-150 border bg-[var(--color-bg-secondary)] ${
+          isFailed
+            ? "border-[var(--color-failure)]/30 group-hover:border-[var(--color-failure)] group-hover:shadow-[0_0_32px_rgba(248,113,113,0.35)]"
+            : "border-[var(--color-border)] group-hover:border-[var(--color-accent-bright)] group-hover:shadow-[0_0_28px_rgba(148,214,0,0.45),0_0_2px_rgba(148,214,0,0.7)]"
+        } group-hover:bg-[var(--color-bg-tertiary)]`}
+      >
+        <div className="flex items-start justify-between gap-3 mb-3">
+          <h3 className="text-sm font-medium text-[var(--color-text)] truncate group-hover:text-white transition-colors">
             {run.title}
           </h3>
-          <span
-            className={`text-xs px-2 py-0.5 rounded-full border whitespace-nowrap ${STATUS_COLORS[run.status] ?? ""}`}
-          >
-            {run.status}
+          <span className="flex items-center gap-1.5 text-xs text-[var(--color-text-muted)] whitespace-nowrap shrink-0">
+            <span className={`w-1.5 h-1.5 rounded-full ${status.dot}`} />
+            {status.label}
           </span>
         </div>
-        <p className="text-xs text-[var(--color-text-muted)] line-clamp-2 mb-3">
+        <p className="text-xs text-[var(--color-text-muted)] line-clamp-2 mb-4 leading-relaxed">
           {run.userTask}
         </p>
-        <div className="flex items-center justify-between text-xs text-[var(--color-text-muted)]">
-          <span className="font-mono">{run.id}</span>
-          <span>{timeAgo(run.createdAt)}</span>
+        <div className="flex items-center justify-between text-[11px] text-[var(--color-text-subtle)]">
+          <span className="font-mono truncate">{run.id}</span>
+          <span className="whitespace-nowrap ml-2">{timeAgo(run.createdAt)}</span>
         </div>
       </div>
     </Link>
