@@ -1,0 +1,22 @@
+{
+  "name": "@nemocognition/worker",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "bullmq": "^5.46.0",
+    "ioredis": "^5.6.0",
+    "zod": "^3.24.0",
+    "@nemocognition/core": "workspace:*",
+    "@nemocognition/recovery": "workspace:*",
+    "@nemocognition/video": "workspace:*",
+    "@nemocognition/db": "workspace:*"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.8.0"
+  }
+}

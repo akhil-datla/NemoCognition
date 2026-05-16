@@ -1,0 +1,33 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "jsx": "react-jsx",
+    "strict": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "paths": {
+      "@nemocognition/core": ["./packages/core/src/index.ts"],
+      "@nemocognition/core/*": ["./packages/core/src/*"],
+      "@nemocognition/tracing": ["./packages/tracing/src/index.ts"],
+      "@nemocognition/tracing/*": ["./packages/tracing/src/*"],
+      "@nemocognition/nemoclaw": ["./packages/nemoclaw/src/index.ts"],
+      "@nemocognition/nemoclaw/*": ["./packages/nemoclaw/src/*"],
+      "@nemocognition/db": ["./packages/db/src/index.ts"],
+      "@nemocognition/db/*": ["./packages/db/src/*"],
+      "@nemocognition/recovery": ["./packages/recovery/src/index.ts"],
+      "@nemocognition/recovery/*": ["./packages/recovery/src/*"],
+      "@nemocognition/video": ["./packages/video/src/index.ts"],
+      "@nemocognition/video/*": ["./packages/video/src/*"]
+    }
+  },
+  "exclude": ["node_modules", ".next", "dist"]
+}

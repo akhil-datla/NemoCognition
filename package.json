@@ -1,0 +1,45 @@
+{
+  "name": "nemocognition",
+  "private": true,
+  "version": "0.1.0",
+  "description": "NemoClaw Policy Replay Lab — visual execution, failure, and recovery debugger",
+  "scripts": {
+    "dev": "pnpm --filter @nemocognition/web dev",
+    "build": "pnpm --filter @nemocognition/web build",
+    "lint": "pnpm --filter @nemocognition/web lint",
+    "typecheck": "pnpm -r typecheck",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "worker": "tsx apps/worker/src/index.ts",
+    "db:migrate": "drizzle-kit migrate",
+    "db:studio": "drizzle-kit studio"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.52.0",
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.3.0",
+    "@types/node": "^22.15.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "@vitejs/plugin-react": "^4.4.0",
+    "drizzle-kit": "^0.31.0",
+    "jsdom": "^26.1.0",
+    "msw": "^2.7.0",
+    "typescript": "^5.8.0",
+    "vitest": "^3.1.0"
+  },
+  "packageManager": "pnpm@10.11.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "msgpackr-extract",
+      "msw",
+      "sharp",
+      "unrs-resolver"
+    ]
+  }
+}

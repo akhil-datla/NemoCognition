@@ -1,0 +1,65 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "jsx": "preserve",
+    "strict": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "incremental": true,
+    "noEmit": true,
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+    "paths": {
+      "@/*": [
+        "./src/*"
+      ],
+      "@nemocognition/core": [
+        "../../packages/core/src/index.ts"
+      ],
+      "@nemocognition/core/*": [
+        "../../packages/core/src/*"
+      ],
+      "@nemocognition/tracing": [
+        "../../packages/tracing/src/index.ts"
+      ],
+      "@nemocognition/tracing/*": [
+        "../../packages/tracing/src/*"
+      ],
+      "@nemocognition/db": [
+        "../../packages/db/src/index.ts"
+      ],
+      "@nemocognition/db/*": [
+        "../../packages/db/src/*"
+      ],
+      "@nemocognition/recovery": [
+        "../../packages/recovery/src/index.ts"
+      ],
+      "@nemocognition/recovery/*": [
+        "../../packages/recovery/src/*"
+      ]
+    },
+    "allowJs": true
+  },
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
+}
