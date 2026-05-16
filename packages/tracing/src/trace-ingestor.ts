@@ -84,6 +84,12 @@ export function ingestTrackerEvents(events: TrackerEvent[]): IngestResult {
             describeModelCall(event.attributes),
           );
           node.endedAt = event.timestamp;
+          node.payload = {
+            messages: pending.startEvent.attributes.messages ?? null,
+            outputMessage: event.attributes.outputMessage ?? null,
+            tokenCount: event.attributes.tokenCount ?? null,
+            latencyMs: event.attributes.latencyMs ?? null,
+          };
           result.nodes.push(node);
           pendingCalls.delete(callId);
         }
@@ -105,6 +111,17 @@ export function ingestTrackerEvents(events: TrackerEvent[]): IngestResult {
             errorClass ? `Failed: ${errorClass}` : `Completed (exit ${exitCode})`,
           );
           node.endedAt = event.timestamp;
+          const inputJson = pending.startEvent.attributes.inputJson;
+          const outputRef = event.attributes.outputRef;
+          node.payload = {
+            toolName,
+            args: typeof inputJson === "string" ? safeParseJson(inputJson) : inputJson ?? null,
+            output: typeof outputRef === "string" ? safeParseJson(outputRef) : outputRef ?? null,
+            errorClass: errorClass ?? null,
+            exitCode,
+            durationMs: event.attributes.durationMs ?? null,
+            filesTouched: event.attributes.filesTouched ?? null,
+          };
           result.nodes.push(node);
           pendingCalls.delete(callId);
         }
@@ -216,6 +233,14 @@ function makeNode(
     payloadRef: null,
     validationRef: null,
   };
+}
+
+function safeParseJson(s: string): unknown {
+  try {
+    return JSON.parse(s);
+  } catch {
+    return s;
+  }
 }
 
 function describeModelCall(attrs: Record<string, unknown>): string {

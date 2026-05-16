@@ -1,5 +1,10 @@
 import { RuntimeTracker, type TrackerEvent } from "@nemocognition/nemoclaw";
-import type { ToolDefinition, ToolExecutionResult } from "@nemocognition/nemoclaw";
+import type {
+  ToolDefinition,
+  ToolExecutionResult,
+  NimMessage,
+  NimToolDef,
+} from "@nemocognition/nemoclaw";
 import { ToolWrapper, NimClient } from "@nemocognition/nemoclaw";
 import { PhoenixExporter } from "@nemocognition/tracing";
 
@@ -10,6 +15,8 @@ export interface RecorderConfig {
   phoenixEndpoint: string;
   /** If set, the session will POST recorded events to this NemoCognition API base URL (e.g. http://localhost:3000) */
   nemocognitionApiUrl?: string;
+  /** Server-side hook: fires for every TrackerEvent as it happens. Used by the live-stream session runner. */
+  onTrackerEvent?: (e: TrackerEvent) => void;
   onSpanExport?: (spans: unknown[]) => void;
   /** Override the NIM chat function (used in tests). When unset, a real NimClient is created. */
   nimChat?: (messages: unknown[], options?: unknown) => Promise<{
@@ -69,7 +76,10 @@ export class Session {
   constructor(config: RecorderConfig, input: StartInput) {
     this.config = config;
     this.tracker = new RuntimeTracker({
-      onEvent: (e) => this.events.push(e),
+      onEvent: (e) => {
+        this.events.push(e);
+        config.onTrackerEvent?.(e);
+      },
       phoenixEndpoint: config.phoenixEndpoint,
     });
     this.toolWrapper = new ToolWrapper();
@@ -99,19 +109,29 @@ export class Session {
     tokenCount: { input: number; output: number };
     toolCalls?: { id: string; name: string; arguments: string }[];
   }> {
-    const userMessage = { role: "user" as const, content: message };
+    return this.chatMessages([{ role: "user", content: message }]);
+  }
+
+  async chatMessages(
+    messages: NimMessage[],
+    options?: { tools?: NimToolDef[] },
+  ): Promise<{
+    content: string | null;
+    tokenCount: { input: number; output: number };
+    toolCalls?: { id: string; name: string; arguments: string }[];
+  }> {
+    const last = messages[messages.length - 1];
     const callId = this.tracker.beforeModelCall({
-      promptRef: message,
+      promptRef: typeof last?.content === "string" ? last.content : "",
       contextRef: "context:current",
-      messages: [userMessage],
+      messages: messages.map((m) => ({ role: m.role, content: m.content ?? "" })),
     });
 
     const chatFn = this.getChatFn();
     const start = performance.now();
-    const response = await chatFn(
-      [userMessage],
-      { tools: this.toolWrapper.getToolDefinitions() },
-    );
+    const response = await chatFn(messages, {
+      tools: options?.tools ?? this.toolWrapper.getToolDefinitions(),
+    });
     const latencyMs = Math.round(performance.now() - start);
 
     const outputContent = response.content ?? "";

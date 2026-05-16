@@ -9,6 +9,42 @@ interface TerminalLine {
   text: string;
 }
 
+/**
+ * Human-readable single-line label for a streamed TrackerEvent. Returns null
+ * for events that aren't interesting to surface in the terminal output (the
+ * tool start/end pairs collapse into a single tool_call line in the UI, but
+ * here we surface every event for transparency).
+ */
+function formatEventLabel(ev: { type: string; attributes?: Record<string, unknown> }): string | null {
+  const a = ev.attributes ?? {};
+  switch (ev.type) {
+    case "run_start":
+      return `run_start              ${a.title ?? ""}`;
+    case "model_call_start":
+      return `model_call_start       prompt=${String(a.promptRef ?? "").slice(0, 50)}...`;
+    case "model_call_end": {
+      const tc = a.tokenCount as { input?: number; output?: number } | undefined;
+      return `model_call_end         ${tc ? `${tc.input}→${tc.output} tokens` : ""} ${a.latencyMs ?? "?"}ms`;
+    }
+    case "tool_call_start":
+      return `tool_call_start        ${a.toolName ?? ""}(${String(a.inputJson ?? "")})`;
+    case "tool_call_end":
+      return `tool_call_end          exit=${a.exitCode ?? "?"} ${a.errorClass ? `err=${a.errorClass}` : ""}`;
+    case "policy_allow":
+      return `policy_allow           ${a.actionType ?? ""} ${a.resource ?? ""}`;
+    case "policy_deny":
+      return `policy_deny     ⊘      ${a.actionType ?? ""} ${a.resource ?? ""}`;
+    case "memory_update":
+      return `memory_update          ${a.key ?? ""}=${String(a.value ?? "").slice(0, 40)}`;
+    case "checkpoint":
+      return `checkpoint             ${String(a.checkpointId ?? "").slice(0, 24)}`;
+    case "run_end":
+      return `run_end                status=${a.status ?? ""}`;
+    default:
+      return `${ev.type}`;
+  }
+}
+
 const WELCOME = [
   "╔══════════════════════════════════════════════════════════════╗",
   "║         NemoClaw Policy Replay Lab  v0.1.0                  ║",
@@ -99,29 +135,74 @@ export function Terminal() {
             { type: "system", text: `  Environment: NVIDIA Brev` },
             { type: "system", text: `  Model: NVIDIA Nemotron via NIM` },
             { type: "system", text: `  Tracing: OpenInference → Phoenix` },
+            { type: "system", text: `  (server runs a scripted demo flow using your task as context)` },
+            { type: "system", text: "" },
           ]);
 
+          let res: Response;
           try {
-            const res = await fetch("/api/runs", {
+            res = await fetch("/api/sessions/start", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ title: task.slice(0, 60), userTask: task }),
             });
-            const data = await res.json();
-            if (res.ok) {
-              addLines([
-                { type: "system", text: `  Run ID: ${data.id}` },
-                { type: "system", text: `  Branch: ${data.rootBranchId}` },
-                { type: "system", text: "" },
-                { type: "system", text: "Session created. Opening replay player..." },
-              ]);
-              setTimeout(() => router.push(`/runs/${data.id}`), 1000);
-            } else {
-              addLines([{ type: "error", text: `Error: ${JSON.stringify(data.error)}` }]);
-            }
           } catch (e) {
             addLines([{ type: "error", text: `Network error: ${e}` }]);
+            return;
           }
+          const data = await res.json();
+          if (!res.ok) {
+            const msg = data?.error ? JSON.stringify(data.error) : "request failed";
+            addLines([{ type: "error", text: `Error (${res.status}): ${msg}` }]);
+            return;
+          }
+
+          addLines([
+            { type: "system", text: `  Run ID:    ${data.runId}` },
+            { type: "system", text: `  Branch:    ${data.branchId}` },
+            { type: "system", text: "" },
+            { type: "system", text: "● Streaming events..." },
+          ]);
+
+          await new Promise<void>((resolve) => {
+            const es = new EventSource(data.sseUrl);
+            es.onmessage = (msg) => {
+              try {
+                const wrapped = JSON.parse(msg.data) as {
+                  seq: number;
+                  event: { type: string; [k: string]: unknown };
+                };
+                const ev = wrapped.event;
+
+                if (ev.type === "complete") {
+                  addLines([
+                    { type: "system", text: "" },
+                    { type: "system", text: `✓ Session ended (status: ${(ev as { status?: string }).status ?? "unknown"})` },
+                    { type: "system", text: "Opening replay player..." },
+                  ]);
+                  es.close();
+                  setTimeout(() => router.push(`/runs/${data.runId}`), 800);
+                  resolve();
+                  return;
+                }
+
+                if (ev.type === "error") {
+                  addLines([{ type: "error", text: `  ✗ error: ${(ev as { message?: string }).message ?? ""}` }]);
+                  return;
+                }
+
+                const label = formatEventLabel(ev);
+                if (label) addLines([{ type: "output", text: `  → ${label}` }]);
+              } catch (e) {
+                addLines([{ type: "error", text: `  stream parse error: ${e}` }]);
+              }
+            };
+            es.onerror = () => {
+              addLines([{ type: "error", text: "  stream disconnected" }]);
+              es.close();
+              resolve();
+            };
+          });
           return;
         }
 

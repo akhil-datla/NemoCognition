@@ -15,6 +15,13 @@
       "when": 1778913563959,
       "tag": "0001_checkpoint_payload",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1778940000000,
+      "tag": "0002_node_payload",
+      "breakpoints": true
     }
   ]
 }

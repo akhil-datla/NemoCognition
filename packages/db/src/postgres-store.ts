@@ -108,6 +108,7 @@ export class PostgresStore implements Store {
         timestampStart: new Date(node.startedAt),
         timestampEnd: node.endedAt ? new Date(node.endedAt) : null,
         payloadRef: node.payloadRef,
+        payloadJson: node.payload ?? null,
         checkpointRef: node.checkpointId,
         validationRef: node.validationRef,
       })
@@ -119,6 +120,7 @@ export class PostgresStore implements Store {
           summary: node.summary,
           timestampEnd: node.endedAt ? new Date(node.endedAt) : null,
           payloadRef: node.payloadRef,
+          payloadJson: node.payload ?? null,
           validationRef: node.validationRef,
         },
       });
@@ -377,6 +379,7 @@ export class PostgresStore implements Store {
       startedAt: r.timestampStart.toISOString(),
       endedAt: isoFromDate(r.timestampEnd),
       payloadRef: r.payloadRef,
+      payload: (r.payloadJson as Record<string, unknown> | null) ?? null,
       validationRef: r.validationRef,
     };
   }

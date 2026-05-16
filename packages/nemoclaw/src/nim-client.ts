@@ -22,6 +22,7 @@ export interface NimToolDef {
 
 export interface NimResponse {
   content: string | null;
+  reasoningContent?: string;
   toolCalls?: { id: string; name: string; arguments: string }[];
   tokenCount: { input: number; output: number };
   finishReason: string;
@@ -31,6 +32,8 @@ export interface NimConfig {
   endpoint: string;
   apiKey: string;
   model: string;
+  /** Upper bound on completion tokens. Reasoning models default to unbounded on NIM, which can hang the agent loop — cap it here. */
+  maxTokens?: number;
   fetch?: typeof globalThis.fetch;
 }
 
@@ -53,6 +56,7 @@ export class NimClient {
     const body: Record<string, unknown> = {
       model: this.config.model,
       messages,
+      max_tokens: this.config.maxTokens ?? 4096,
     };
     if (options?.tools?.length) {
       body.tools = options.tools;
@@ -81,8 +85,22 @@ export class NimClient {
       arguments: tc.function.arguments,
     }));
 
+    // Reasoning models (e.g. nvidia/nemotron-3-nano-omni-30b-a3b-reasoning) return
+    // chain-of-thought in `reasoning_content`. If they hit max_tokens before producing
+    // a final answer, `content` is null — fall back to reasoning so the loop still
+    // sees text instead of stalling.
+    const reasoningContent: string | undefined =
+      typeof message.reasoning_content === "string"
+        ? message.reasoning_content
+        : typeof message.reasoning === "string"
+          ? message.reasoning
+          : undefined;
+    const content: string | null =
+      message.content ?? (toolCalls?.length ? null : (reasoningContent ?? null));
+
     return {
-      content: message.content,
+      content,
+      reasoningContent,
       toolCalls,
       tokenCount: {
         input: data.usage.prompt_tokens,

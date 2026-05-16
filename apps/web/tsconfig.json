@@ -61,6 +61,12 @@
       ],
       "@nemocognition/video/*": [
         "../../packages/video/src/*"
+      ],
+      "@nemocognition/cli": [
+        "../../packages/cli/src/index.ts"
+      ],
+      "@nemocognition/cli/*": [
+        "../../packages/cli/src/*"
       ]
     },
     "allowJs": true

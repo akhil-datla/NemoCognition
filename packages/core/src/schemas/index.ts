@@ -80,6 +80,15 @@ export const executionNodeSchema = z.object({
   endedAt: z.string().nullable(),
   payloadRef: z.string().nullable(),
   validationRef: z.string().nullable(),
+  /**
+   * Inline JSON payload captured at node creation. Shape is type-dependent:
+   * model_call → { messages, outputMessage, tokenCount, latencyMs }
+   * tool_call  → { toolName, args, output, errorClass?, exitCode? }
+   * Used by the replay inspector to render real prompts/responses instead of
+   * placeholder data. Optional + nullable for backwards compat with rows
+   * persisted before the column existed.
+   */
+  payload: z.record(z.unknown()).nullable().optional(),
 });
 export type ExecutionNode = z.infer<typeof executionNodeSchema>;
 

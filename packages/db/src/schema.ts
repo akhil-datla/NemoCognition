@@ -30,6 +30,7 @@ export const executionNodes = pgTable("execution_nodes", {
   timestampStart: timestamp("timestamp_start", { withTimezone: true }).notNull(),
   timestampEnd: timestamp("timestamp_end", { withTimezone: true }),
   payloadRef: text("payload_ref"),
+  payloadJson: jsonb("payload_json"),
   checkpointRef: text("checkpoint_ref"),
   validationRef: text("validation_ref"),
 });

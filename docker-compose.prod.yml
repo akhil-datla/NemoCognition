@@ -47,9 +47,20 @@ services:
     restart: unless-stopped
     ports:
       - "${WEB_PORT:-3000}:3000"
+    # Bind-mount the repo read-write so the agent's tools can read & modify
+    # the live source. NEMOCLAW_SANDBOX_ROOT pins all tool paths inside it.
+    volumes:
+      - ./:/workspace
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-nemocognition}:${POSTGRES_PASSWORD:-nemocognition_dev}@postgres:5432/${POSTGRES_DB:-nemocognition}
       NODE_ENV: production
+      # Needed so the in-terminal "nemoclaw run <task>" endpoint can drive a
+      # real Nemotron session from the server.
+      NIM_API_KEY: ${NIM_API_KEY:-}
+      NIM_ENDPOINT: ${NIM_ENDPOINT:-https://integrate.api.nvidia.com/v1}
+      NIM_MODEL: ${NIM_MODEL:-nvidia/nemotron-3-nano-omni-30b-a3b-reasoning}
+      PHOENIX_ENDPOINT: ${PHOENIX_ENDPOINT:-http://phoenix:6006}
+      NEMOCLAW_SANDBOX_ROOT: ${NEMOCLAW_SANDBOX_ROOT:-/workspace}
     depends_on:
       postgres:
         condition: service_healthy

@@ -86,19 +86,36 @@ function buildNodeNarrative(node: ExecutionNode): string {
     case "agent_message":
       lines.push(`[Agent] ${node.summary}`);
       break;
-    case "model_call":
-      lines.push(`[Nemotron via NIM] Generating response...`);
-      lines.push(`Provider: NVIDIA`);
-      lines.push(`Model: Nemotron`);
+    case "model_call": {
+      const payload = (node.payload ?? {}) as Record<string, unknown>;
+      const out = payload.outputMessage as { content?: string | null } | null | undefined;
+      lines.push(`[Nemotron via NIM]`);
+      lines.push(node.summary);
       lines.push(``);
-      lines.push(`Output: ${node.summary}`);
+      if (out?.content) {
+        lines.push(out.content);
+      } else {
+        lines.push(`(no response captured)`);
+      }
       break;
-    case "tool_call":
-      lines.push(`[Tool Call] ${node.title}`);
+    }
+    case "tool_call": {
+      const payload = (node.payload ?? {}) as Record<string, unknown>;
+      const toolName = (payload.toolName as string | undefined) ?? node.title;
+      lines.push(`[Tool Call] ${toolName}`);
       lines.push(`Status: ${node.status}`);
-      lines.push(``);
-      lines.push(`${node.summary}`);
+      if (payload.args !== undefined) {
+        lines.push(``);
+        lines.push(`Input:`);
+        lines.push(typeof payload.args === "string" ? payload.args : JSON.stringify(payload.args, null, 2));
+      }
+      if (payload.output !== undefined) {
+        lines.push(``);
+        lines.push(`Output:`);
+        lines.push(typeof payload.output === "string" ? payload.output : JSON.stringify(payload.output, null, 2));
+      }
       break;
+    }
     case "tool_result":
       lines.push(`[Tool Result] ${node.summary}`);
       break;

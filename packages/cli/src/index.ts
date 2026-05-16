@@ -1,1 +1,1 @@
-export { SessionRecorder, type RecorderConfig } from "./recorder";
+export { SessionRecorder, Session, type RecorderConfig } from "./recorder";
