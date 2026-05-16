@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 
 interface TerminalLine {
   id: number;
@@ -238,12 +239,12 @@ export function Terminal() {
           <span className="h-3 w-px bg-[var(--color-border-strong)]" />
           <span className="text-xs text-[var(--color-text-muted)]">Terminal</span>
         </div>
-        <a
+        <Link
           href="/runs"
           className="text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors"
         >
           Sessions →
-        </a>
+        </Link>
       </div>
       <div className="flex-1 flex flex-col overflow-hidden px-8 py-6">
       <div className="flex-1 overflow-y-auto font-mono text-[13px] leading-relaxed">

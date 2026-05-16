@@ -321,6 +321,11 @@ export class RuntimeTracker {
     return this.branchId;
   }
 
+  /** All recorded events in emission order. Used by consumers that need to ship the trace to a replay UI without going through the OpenInferenceSpan transform. */
+  getEvents(): TrackerEvent[] {
+    return [...this.events];
+  }
+
   private nextNodeId(): string {
     return `node_${randomUUID()}`;
   }
