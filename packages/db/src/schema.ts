@@ -61,6 +61,8 @@ export const checkpoints = pgTable("checkpoints", {
   validationRef: text("validation_ref"),
   parentCheckpointId: text("parent_checkpoint_id"),
   phoenixTraceRef: text("phoenix_trace_ref"),
+  memoryJson: jsonb("memory_json"),
+  policyYaml: text("policy_yaml"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

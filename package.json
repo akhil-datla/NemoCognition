@@ -12,10 +12,12 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "worker": "tsx apps/worker/src/index.ts",
-    "db:migrate": "drizzle-kit migrate",
+    "db:migrate": "pnpm --filter @nemocognition/db migrate",
+    "db:generate": "drizzle-kit generate",
     "db:studio": "drizzle-kit studio"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.4.5",
     "@playwright/test": "^1.52.0",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.3.0",

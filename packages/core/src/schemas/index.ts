@@ -122,6 +122,10 @@ export const checkpointSchema = z.object({
   validationRef: z.string().nullable(),
   parentCheckpointId: z.string().nullable(),
   phoenixTraceRef: z.string().nullable(),
+  /** Inline serialized memory snapshot captured at the time of the checkpoint. */
+  memoryJson: z.record(z.unknown()).nullable().optional(),
+  /** Inline serialized policy YAML in force at the time of the checkpoint. */
+  policyYaml: z.string().nullable().optional(),
   createdAt: z.string(),
 });
 export type Checkpoint = z.infer<typeof checkpointSchema>;

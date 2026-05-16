@@ -1,12 +1,25 @@
 import { randomUUID } from "crypto";
 import { z } from "zod";
-import { InMemoryStore } from "@nemocognition/db";
+import type { Store } from "@nemocognition/db";
 import { buildExecutionGraph } from "@nemocognition/core/graph/graph-builder";
-import type { Run, Branch, VideoJob } from "@nemocognition/core";
+import { ingestTrackerEvents } from "@nemocognition/tracing";
+import type {
+  Run,
+  Branch,
+  Checkpoint,
+  VideoJob,
+  ExecutionNode,
+  PolicyDecisionEvent,
+  ValidationResult,
+} from "@nemocognition/core";
 
 interface ApiResponse<T = unknown> {
   status: number;
   body: T;
+}
+
+interface ErrorBody {
+  error: unknown;
 }
 
 const createRunInput = z.object({
@@ -14,7 +27,10 @@ const createRunInput = z.object({
   userTask: z.string().min(1),
 });
 
-export function handleCreateRun(store: InMemoryStore, input: unknown): ApiResponse {
+export async function handleCreateRun(
+  store: Store,
+  input: unknown,
+): Promise<ApiResponse<Run | ErrorBody>> {
   const parsed = createRunInput.safeParse(input);
   if (!parsed.success) {
     return { status: 400, body: { error: parsed.error.format() } };
@@ -33,7 +49,7 @@ export function handleCreateRun(store: InMemoryStore, input: unknown): ApiRespon
     completedAt: null,
     rootBranchId,
   };
-  store.runs.set(id, run);
+  await store.setRun(run);
 
   const branch: Branch = {
     id: rootBranchId,
@@ -44,46 +60,57 @@ export function handleCreateRun(store: InMemoryStore, input: unknown): ApiRespon
     correctionSummary: null,
     createdAt: now,
   };
-  store.branches.set(rootBranchId, branch);
+  await store.setBranch(branch);
 
   return { status: 201, body: run };
 }
 
-export function handleGetRun(store: InMemoryStore, runId: string): ApiResponse {
-  const run = store.runs.get(runId);
+export async function handleGetRun(store: Store, runId: string): Promise<ApiResponse<Run | ErrorBody>> {
+  const run = await store.getRun(runId);
   if (!run) return { status: 404, body: { error: "Run not found" } };
   return { status: 200, body: run };
 }
 
-export function handleGetGraph(store: InMemoryStore, runId: string): ApiResponse {
-  const run = store.runs.get(runId);
+export async function handleGetGraph(
+  store: Store,
+  runId: string,
+): Promise<ApiResponse<{ nodes: unknown[]; edges: unknown[] } | ErrorBody>> {
+  const run = await store.getRun(runId);
   if (!run) return { status: 404, body: { error: "Run not found" } };
-  const nodes = store.getRunNodes(runId);
+  const nodes = await store.getRunNodes(runId);
   const graph = buildExecutionGraph(nodes);
   return { status: 200, body: graph };
 }
 
-export function handleGetNode(store: InMemoryStore, runId: string, nodeId: string): ApiResponse {
-  const node = store.nodes.get(nodeId);
+export async function handleGetNode(
+  store: Store,
+  runId: string,
+  nodeId: string,
+): Promise<ApiResponse<ExecutionNode | ErrorBody>> {
+  const node = await store.getNode(nodeId);
   if (!node || node.runId !== runId) {
     return { status: 404, body: { error: "Node not found" } };
   }
   return { status: 200, body: node };
 }
 
-export function handleGetNodeState(store: InMemoryStore, runId: string, nodeId: string): ApiResponse {
-  const node = store.nodes.get(nodeId);
+export async function handleGetNodeState(
+  store: Store,
+  runId: string,
+  nodeId: string,
+): Promise<
+  ApiResponse<
+    | { node: ExecutionNode; validation: ValidationResult | null; policyDecision: PolicyDecisionEvent | null }
+    | ErrorBody
+  >
+> {
+  const node = await store.getNode(nodeId);
   if (!node || node.runId !== runId) {
     return { status: 404, body: { error: "Node not found" } };
   }
-  const validation = [...store.validations.values()].find(
-    v => v.runId === runId && v.nodeId === nodeId
-  );
-  const policyDecision = store.getNodePolicyDecision(runId, nodeId);
-  return {
-    status: 200,
-    body: { node, validation: validation ?? null, policyDecision: policyDecision ?? null },
-  };
+  const validation = (await store.getNodeValidation(runId, nodeId)) ?? null;
+  const policyDecision = (await store.getNodePolicyDecision(runId, nodeId)) ?? null;
+  return { status: 200, body: { node, validation, policyDecision } };
 }
 
 const createBranchInput = z.object({
@@ -91,12 +118,16 @@ const createBranchInput = z.object({
   correctionSummary: z.string().nullable().optional(),
 });
 
-export function handleCreateBranch(store: InMemoryStore, runId: string, input: unknown): ApiResponse {
+export async function handleCreateBranch(
+  store: Store,
+  runId: string,
+  input: unknown,
+): Promise<ApiResponse<Branch | ErrorBody>> {
   const parsed = createBranchInput.safeParse(input);
   if (!parsed.success) {
     return { status: 400, body: { error: parsed.error.format() } };
   }
-  const run = store.runs.get(runId);
+  const run = await store.getRun(runId);
   if (!run) return { status: 404, body: { error: "Run not found" } };
 
   const id = `branch_${randomUUID().slice(0, 8)}`;
@@ -109,7 +140,7 @@ export function handleCreateBranch(store: InMemoryStore, runId: string, input: u
     correctionSummary: parsed.data.correctionSummary ?? null,
     createdAt: new Date().toISOString(),
   };
-  store.branches.set(id, branch);
+  await store.setBranch(branch);
   return { status: 201, body: branch };
 }
 
@@ -120,7 +151,25 @@ const fixAndRerunInput = z.object({
   recoveryStrategy: z.enum(["replan_within_policy", "suggest_policy_change", "rerun_stricter_sandbox"]),
 });
 
-export function handleFixAndRerun(store: InMemoryStore, runId: string, input: unknown): ApiResponse {
+export interface FixAndRerunResult {
+  newBranchId: string;
+  correctionPrompt: string;
+  /**
+   * Restored state the NemoClaw runtime should resume from. `null` when the
+   * checkpoint ID didn't resolve. The runtime is responsible for actually
+   * rehydrating memory + policy on startup.
+   */
+  restoredState: {
+    memory: Record<string, unknown> | null;
+    policyYaml: string | null;
+  } | null;
+}
+
+export async function handleFixAndRerun(
+  store: Store,
+  runId: string,
+  input: unknown,
+): Promise<ApiResponse<FixAndRerunResult | ErrorBody>> {
   const parsed = fixAndRerunInput.safeParse(input);
   if (!parsed.success) {
     return { status: 400, body: { error: parsed.error.format() } };
@@ -146,25 +195,45 @@ export function handleFixAndRerun(store: InMemoryStore, runId: string, input: un
       break;
   }
 
+  // The new branch is a *sibling* of the failed branch — its parent is whatever
+  // branch the failed node belonged to. Look that up from the failed node so
+  // recovery branches stay correctly linked in the graph.
+  const failedNode = await store.getNode(parsed.data.failedNodeId);
+  const parentBranchId = failedNode?.branchId ?? null;
+
+  // Mark the failed branch as `failed` so the dashboard / replay UI can
+  // distinguish it from the in-progress recovery.
+  if (failedNode?.branchId) {
+    const failedBranch = await store.getBranch(failedNode.branchId);
+    if (failedBranch && failedBranch.status !== "failed") {
+      await store.setBranch({ ...failedBranch, status: "failed" });
+    }
+  }
+
   const branch: Branch = {
     id: newBranchId,
     runId,
-    parentBranchId: null,
+    parentBranchId,
     forkNodeId: parsed.data.failedNodeId,
     status: "running",
     correctionSummary: parsed.data.humanCorrection,
     createdAt: new Date().toISOString(),
   };
-  store.branches.set(newBranchId, branch);
+  await store.setBranch(branch);
 
-  return {
-    status: 201,
-    body: { newBranchId, correctionPrompt },
-  };
+  const cp = await store.getCheckpoint(parsed.data.checkpointId);
+  const restoredState = cp
+    ? { memory: cp.memoryJson ?? null, policyYaml: cp.policyYaml ?? null }
+    : null;
+
+  return { status: 201, body: { newBranchId, correctionPrompt, restoredState } };
 }
 
-export function handleCreateVideo(store: InMemoryStore, runId: string): ApiResponse {
-  const run = store.runs.get(runId);
+export async function handleCreateVideo(
+  store: Store,
+  runId: string,
+): Promise<ApiResponse<VideoJob | ErrorBody>> {
+  const run = await store.getRun(runId);
   if (!run) return { status: 404, body: { error: "Run not found" } };
 
   const id = `video_${randomUUID().slice(0, 8)}`;
@@ -177,24 +246,103 @@ export function handleCreateVideo(store: InMemoryStore, runId: string): ApiRespo
     createdAt: new Date().toISOString(),
     completedAt: null,
   };
-  store.videoJobs.set(id, job);
+  await store.setVideoJob(job);
   return { status: 201, body: job };
 }
 
-export function handleGetVideoJob(store: InMemoryStore, runId: string, jobId: string): ApiResponse {
-  const job = store.videoJobs.get(jobId);
+export async function handleGetVideoJob(
+  store: Store,
+  runId: string,
+  jobId: string,
+): Promise<ApiResponse<VideoJob | ErrorBody>> {
+  const job = await store.getVideoJob(jobId);
   if (!job || job.runId !== runId) {
     return { status: 404, body: { error: "Video job not found" } };
   }
   return { status: 200, body: job };
 }
 
-export function handleGetRunPolicy(store: InMemoryStore, runId: string): ApiResponse {
-  const decisions = store.getRunPolicyDecisions(runId);
+export async function handleGetRunPolicy(
+  store: Store,
+  runId: string,
+): Promise<ApiResponse<{ decisions: PolicyDecisionEvent[] }>> {
+  const decisions = await store.getRunPolicyDecisions(runId);
   return { status: 200, body: { decisions } };
 }
 
-export function handleGetRunAudit(store: InMemoryStore, runId: string): ApiResponse {
-  const decisions = store.getRunPolicyDecisions(runId);
+export interface RestoredCheckpoint {
+  checkpoint: Checkpoint;
+  /**
+   * The restored state a recovery branch would resume from. The NemoClaw
+   * runtime is responsible for actually rehydrating this into a live session
+   * on startup — this handler is the read-side: it returns what the runtime
+   * should be initialised with.
+   */
+  state: {
+    memory: Record<string, unknown> | null;
+    policyYaml: string | null;
+  };
+}
+
+export async function handleRestoreCheckpoint(
+  store: Store,
+  checkpointId: string,
+): Promise<ApiResponse<RestoredCheckpoint | ErrorBody>> {
+  const cp = await store.getCheckpoint(checkpointId);
+  if (!cp) return { status: 404, body: { error: "Checkpoint not found" } };
+  return {
+    status: 200,
+    body: {
+      checkpoint: cp,
+      state: {
+        memory: cp.memoryJson ?? null,
+        policyYaml: cp.policyYaml ?? null,
+      },
+    },
+  };
+}
+
+export async function handleGetRunAudit(
+  store: Store,
+  runId: string,
+): Promise<ApiResponse<{ events: PolicyDecisionEvent[] }>> {
+  const decisions = await store.getRunPolicyDecisions(runId);
   return { status: 200, body: { events: decisions } };
+}
+
+interface ImportResult {
+  runId: string;
+  nodeCount: number;
+  branchCount: number;
+  checkpointCount: number;
+  policyDecisionCount: number;
+}
+
+export async function handleImportRun(
+  store: Store,
+  input: unknown,
+): Promise<ApiResponse<ImportResult | ErrorBody>> {
+  const eventsParse = z.object({ events: z.array(z.any()) }).safeParse(input);
+  if (!eventsParse.success) {
+    return { status: 400, body: { error: "Expected { events: TrackerEvent[] }" } };
+  }
+  const ingest = ingestTrackerEvents(eventsParse.data.events);
+  if (!ingest.run) {
+    return { status: 400, body: { error: "Events did not include a run_start" } };
+  }
+  await store.setRun(ingest.run);
+  for (const b of ingest.branches) await store.setBranch(b);
+  for (const n of ingest.nodes) await store.setNode(n);
+  for (const c of ingest.checkpoints) await store.setCheckpoint(c);
+  for (const p of ingest.policyDecisions) await store.setPolicyDecision(p);
+  return {
+    status: 201,
+    body: {
+      runId: ingest.run.id,
+      nodeCount: ingest.nodes.length,
+      branchCount: ingest.branches.length,
+      checkpointCount: ingest.checkpoints.length,
+      policyDecisionCount: ingest.policyDecisions.length,
+    },
+  };
 }

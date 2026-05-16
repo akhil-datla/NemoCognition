@@ -1,6 +1,9 @@
 import Link from "next/link";
 import { ReplayPlayer } from "@/components/replay/ReplayPlayer";
 import { demoRun, demoNodes, demoBranches, demoPolicyEvents } from "@/lib/demo-data";
+import { getStore } from "@/lib/store-factory";
+
+export const dynamic = "force-dynamic";
 
 export default async function ReplayPage({
   params,
@@ -9,8 +12,20 @@ export default async function ReplayPage({
 }) {
   const { runId } = await params;
 
-  const run = runId === "run_demo_001" ? demoRun : null;
+  if (runId === demoRun.id) {
+    return (
+      <ReplayPlayer
+        runId={demoRun.id}
+        runTitle={demoRun.title}
+        nodes={demoNodes}
+        branches={demoBranches}
+        policyEvents={demoPolicyEvents}
+      />
+    );
+  }
 
+  const store = await getStore();
+  const run = await store.getRun(runId);
   if (!run) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-[var(--color-bg)]">
@@ -24,13 +39,19 @@ export default async function ReplayPage({
     );
   }
 
+  const nodes = (await store.getRunNodes(runId)).sort((a, b) =>
+    a.startedAt.localeCompare(b.startedAt),
+  );
+  const branches = await store.getRunBranches(runId);
+  const policyEvents = await store.getRunPolicyDecisions(runId);
+
   return (
     <ReplayPlayer
       runId={run.id}
       runTitle={run.title}
-      nodes={demoNodes}
-      branches={demoBranches}
-      policyEvents={demoPolicyEvents}
+      nodes={nodes}
+      branches={branches}
+      policyEvents={policyEvents}
     />
   );
 }

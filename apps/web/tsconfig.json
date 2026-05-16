@@ -49,6 +49,18 @@
       ],
       "@nemocognition/recovery/*": [
         "../../packages/recovery/src/*"
+      ],
+      "@nemocognition/nemoclaw": [
+        "../../packages/nemoclaw/src/index.ts"
+      ],
+      "@nemocognition/nemoclaw/*": [
+        "../../packages/nemoclaw/src/*"
+      ],
+      "@nemocognition/video": [
+        "../../packages/video/src/index.ts"
+      ],
+      "@nemocognition/video/*": [
+        "../../packages/video/src/*"
       ]
     },
     "allowJs": true

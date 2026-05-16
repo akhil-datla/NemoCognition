@@ -1,0 +1,36 @@
+# syntax=docker/dockerfile:1.7
+
+# ---- builder ----
+FROM node:20-alpine AS builder
+WORKDIR /workspace
+RUN apk add --no-cache libc6-compat
+RUN corepack enable && corepack prepare pnpm@10.11.0 --activate
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json drizzle.config.ts ./
+COPY apps/web/package.json apps/web/
+COPY apps/worker/package.json apps/worker/
+COPY packages/core/package.json packages/core/
+COPY packages/tracing/package.json packages/tracing/
+COPY packages/nemoclaw/package.json packages/nemoclaw/
+COPY packages/db/package.json packages/db/
+COPY packages/recovery/package.json packages/recovery/
+COPY packages/video/package.json packages/video/
+COPY packages/cli/package.json packages/cli/
+
+RUN pnpm install --frozen-lockfile
+
+COPY . .
+
+# ---- runtime ----
+FROM node:20-alpine AS runner
+WORKDIR /workspace
+RUN apk add --no-cache libc6-compat
+RUN corepack enable && corepack prepare pnpm@10.11.0 --activate
+ENV NODE_ENV=production
+
+# Just copy everything from builder — the worker uses tsx at runtime so we
+# don't bother with a separate bundle. Source files are small.
+COPY --from=builder /workspace ./
+
+USER node
+CMD ["pnpm", "--filter", "@nemocognition/worker", "start"]

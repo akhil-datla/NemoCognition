@@ -1,0 +1,80 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-nemocognition}
+      POSTGRES_USER: ${POSTGRES_USER:-nemocognition}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nemocognition_dev}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-nemocognition}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  phoenix:
+    image: arizephoenix/phoenix:latest
+    restart: unless-stopped
+    ports:
+      - "${PHOENIX_PORT:-6006}:6006"
+      - "${PHOENIX_OTLP_PORT:-4317}:4317"
+    environment:
+      PHOENIX_WORKING_DIR: /data
+    volumes:
+      - phoenix_data:/data
+
+  # One-shot migration runner. Uses the worker image which carries tsx + the
+  # full source tree (so drizzle-orm and the migration SQL files are both
+  # available). Exits after applying migrations.
+  migrator:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    command: ["pnpm", "--filter", "@nemocognition/db", "migrate"]
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-nemocognition}:${POSTGRES_PASSWORD:-nemocognition_dev}@postgres:5432/${POSTGRES_DB:-nemocognition}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-nemocognition}:${POSTGRES_PASSWORD:-nemocognition_dev}@postgres:5432/${POSTGRES_DB:-nemocognition}
+      NODE_ENV: production
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-nemocognition}:${POSTGRES_PASSWORD:-nemocognition_dev}@postgres:5432/${POSTGRES_DB:-nemocognition}
+      WORKER_INTERVAL_MS: ${WORKER_INTERVAL_MS:-5000}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+
+volumes:
+  pgdata:
+  phoenix_data:
