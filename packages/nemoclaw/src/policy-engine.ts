@@ -178,3 +178,17 @@ export const DEFAULT_POLICY: PolicyConfig = {
     sandbox_boundary: "deny",
   },
 };
+
+/** Read-only inspection preset: same deny rules as DEFAULT, but writes / shell / network default-deny. */
+export const STRICT_POLICY: PolicyConfig = {
+  rules: DEFAULT_POLICY.rules,
+  defaultDecision: {
+    file_read: "allow",
+    file_write: "deny",
+    command_execution: "deny",
+    network_call: "deny",
+    tool_execution: "allow",
+    env_access: "deny",
+    sandbox_boundary: "deny",
+  },
+};

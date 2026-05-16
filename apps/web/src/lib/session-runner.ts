@@ -1,3 +1,5 @@
+import path from "node:path";
+import { randomUUID } from "node:crypto";
 import { SessionRecorder } from "@nemocognition/cli";
 import type { Session } from "@nemocognition/cli";
 import type { TrackerEvent, NimMessage, NimToolDef, PolicyConfig } from "@nemocognition/nemoclaw";
@@ -5,6 +7,7 @@ import { evaluatePolicy, DEFAULT_POLICY } from "@nemocognition/nemoclaw";
 import type { Store } from "@nemocognition/db";
 import { ingestTrackerEvents } from "@nemocognition/tracing";
 import { buildAgentTools, type AgentTool } from "./agent-tools";
+import { takeSnapshot, defaultSnapshotsDir } from "./snapshot";
 
 /** Live status of a running session. Used by the SSE handler. */
 export type RunnerStatus = "running" | "completed" | "failed";
@@ -34,6 +37,17 @@ export interface SessionRunnerConfig {
   policy?: PolicyConfig;
   /** Max agent-loop iterations before the loop exits regardless of tool calls. */
   maxIterations?: number;
+  /** Directory where per-checkpoint tarball snapshots are written. Defaults to NEMOCLAW_SNAPSHOTS_DIR / tmp. */
+  snapshotsDir?: string;
+  /** Disable snapshotting (e.g. in unit tests where tar/IO is undesirable). */
+  disableSnapshots?: boolean;
+  /** Resume an existing run on a new branch (recovery flow). When set, the
+   *  runner emits a branch_start instead of run_start. */
+  resumeBranch?: {
+    runId: string;
+    parentBranchId: string;
+    parentNodeId: string;
+  };
   /** Override NIM chat for tests. */
   nimChat?: ConstructorParameters<typeof SessionRecorder>[0]["nimChat"];
   /** Override fetch for tests (used by Phoenix exporter + API import). */
@@ -67,7 +81,13 @@ export class SessionRunner {
       fetch: config.fetch,
       onTrackerEvent: (e) => this.emit(e),
     });
-    this.session = recorder.start({ title, userTask });
+    this.session = config.resumeBranch
+      ? recorder.startBranch({
+          ...config.resumeBranch,
+          title,
+          userTask,
+        })
+      : recorder.start({ title, userTask });
     this.runId = this.session.runId;
     this.branchId = this.session.branchId;
   }
@@ -195,6 +215,32 @@ export class SessionRunner {
             continue;
           }
 
+          let snapshotPath: string | null = null;
+          if (!this.config.disableSnapshots) {
+            const snapshotsDir = this.config.snapshotsDir ?? defaultSnapshotsDir();
+            const tarPath = path.join(snapshotsDir, this.runId, `${randomUUID()}.tar.gz`);
+            try {
+              const r = await takeSnapshot(sandboxRoot, tarPath);
+              snapshotPath = r.tarPath;
+            } catch (snapErr) {
+              this.emit({
+                type: "error",
+                message: `Snapshot failed: ${snapErr instanceof Error ? snapErr.message : String(snapErr)}`,
+              });
+            }
+          }
+
+          this.session.checkpoint({
+            memory: {
+              iteration: iter,
+              nextTool: tc.name,
+              nextArgs: args,
+              messages: JSON.parse(JSON.stringify(messages)) as NimMessage[],
+              __snapshotPath: snapshotPath,
+            },
+            policyYaml: "",
+          });
+
           const result = await this.session.executeTool(tc.name, args);
           const payload = result.errorClass
             ? { error: result.errorClass, output: result.output }
@@ -224,13 +270,16 @@ export class SessionRunner {
     try {
       const events = this.session.getEvents();
       const ingest = ingestTrackerEvents(events);
+      // Branch resume runs have no run_start event so ingest.run is null —
+      // always persist branches/nodes/etc; only upsert the Run when present.
       if (ingest.run) {
+        ingest.run.sandboxRoot = sandboxRoot;
         await this.config.store.setRun(ingest.run);
-        for (const b of ingest.branches) await this.config.store.setBranch(b);
-        for (const n of ingest.nodes) await this.config.store.setNode(n);
-        for (const c of ingest.checkpoints) await this.config.store.setCheckpoint(c);
-        for (const p of ingest.policyDecisions) await this.config.store.setPolicyDecision(p);
       }
+      for (const b of ingest.branches) await this.config.store.setBranch(b);
+      for (const n of ingest.nodes) await this.config.store.setNode(n);
+      for (const c of ingest.checkpoints) await this.config.store.setCheckpoint(c);
+      for (const p of ingest.policyDecisions) await this.config.store.setPolicyDecision(p);
       await this.session.flushToBackends();
     } catch (err) {
       this.emit({

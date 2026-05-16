@@ -1,9 +1,11 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import type { ExecutionNode, PolicyDecisionEvent } from "@nemocognition/core";
+import { FileExplorer } from "./FileExplorer";
 
-type Tab = "summary" | "prompt" | "response" | "tool_io" | "policy" | "audit" | "raw";
+type Tab = "summary" | "prompt" | "response" | "tool_io" | "files" | "policy" | "audit" | "raw";
 
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   success: { label: "Allowed / Success", color: "#22c55e" },
@@ -16,8 +18,43 @@ const STATUS_LABELS: Record<string, { label: string; color: string }> = {
 interface NodeInspectorProps {
   node: ExecutionNode;
   policyEvent?: PolicyDecisionEvent | null;
+  runId?: string;
   onClose: () => void;
 }
+
+interface RecoveryState {
+  pending: boolean;
+  error: string | null;
+  info: string | null;
+}
+
+interface RecoverResult {
+  newBranchId?: string;
+  restored?: boolean;
+  checkpointId?: string;
+  filesRestored?: number;
+  filesRemoved?: number;
+  error?: string;
+}
+
+async function recoverBranch(
+  runId: string,
+  failedNodeId: string,
+  branchId: string,
+): Promise<RecoverResult> {
+  const res = await fetch(`/api/runs/${runId}/recover-branch`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ failedNodeId, branchId }),
+  });
+  const json = (await res.json().catch(() => ({}))) as RecoverResult;
+  if (!res.ok) {
+    const errMsg = typeof json.error === "string" ? json.error : `API ${res.status}`;
+    return { error: errMsg };
+  }
+  return json;
+}
+
 
 interface ChatMessage {
   role: string;
@@ -41,7 +78,106 @@ function pretty(v: unknown): string {
   }
 }
 
-export function NodeInspector({ node, policyEvent, onClose }: NodeInspectorProps) {
+type FileOp = "read" | "write" | "list";
+
+interface DirEntry {
+  name: string;
+  type: "dir" | "file" | "other";
+}
+
+interface FileActivity {
+  op: FileOp;
+  path: string;
+  content?: string;
+  bytes?: number;
+  truncated?: boolean;
+  entries?: DirEntry[];
+  total?: number;
+}
+
+function extractFileActivity(
+  toolName: string | undefined,
+  args: unknown,
+  output: unknown,
+): FileActivity | null {
+  if (!toolName) return null;
+  const a = (args && typeof args === "object" ? (args as Record<string, unknown>) : {}) ?? {};
+  const o = (output && typeof output === "object" ? (output as Record<string, unknown>) : {}) ?? {};
+  const argPath = typeof a.path === "string" ? a.path : undefined;
+  const outPath = typeof o.path === "string" ? o.path : undefined;
+  const path = outPath ?? argPath;
+  if (!path) return null;
+
+  if (toolName === "read_file") {
+    return {
+      op: "read",
+      path,
+      content: typeof o.content === "string" ? o.content : undefined,
+      bytes: typeof o.bytes === "number" ? o.bytes : undefined,
+      truncated: typeof o.truncated === "boolean" ? o.truncated : undefined,
+    };
+  }
+  if (toolName === "write_file") {
+    return {
+      op: "write",
+      path,
+      content: typeof a.content === "string" ? a.content : undefined,
+      bytes: typeof o.bytes === "number" ? o.bytes : undefined,
+    };
+  }
+  if (toolName === "list_directory") {
+    const rawEntries = Array.isArray(o.entries) ? o.entries : [];
+    const entries: DirEntry[] = rawEntries
+      .filter((e): e is Record<string, unknown> => !!e && typeof e === "object")
+      .map<DirEntry>((e) => {
+        const t: DirEntry["type"] = e.type === "dir" || e.type === "file" ? e.type : "other";
+        return { name: typeof e.name === "string" ? e.name : "", type: t };
+      })
+      .filter((e) => e.name);
+    return {
+      op: "list",
+      path,
+      entries,
+      total: typeof o.total === "number" ? o.total : undefined,
+      truncated: typeof o.truncated === "boolean" ? o.truncated : undefined,
+    };
+  }
+  return null;
+}
+
+
+export function NodeInspector({ node, policyEvent, runId, onClose }: NodeInspectorProps) {
+  const router = useRouter();
+  const [recovery, setRecovery] = useState<RecoveryState>({
+    pending: false,
+    error: null,
+    info: null,
+  });
+
+  const handleRestore = async () => {
+    if (!runId) return;
+    setRecovery({ pending: true, error: null, info: "Restoring filesystem & forking new branch…" });
+    const result = await recoverBranch(runId, node.nodeId, node.branchId);
+    if (result.error) {
+      setRecovery({
+        pending: false,
+        error: result.error,
+        info: null,
+      });
+      return;
+    }
+    setRecovery({
+      pending: false,
+      error: null,
+      info:
+        `Restored from checkpoint ${result.checkpointId}: ${result.filesRestored} files restored, ${result.filesRemoved} removed. ` +
+        `Agent running on new branch ${result.newBranchId}.`,
+    });
+    // Re-render the page with the new branch's data once the agent loop finishes.
+    // The page is server-rendered; refresh pulls latest nodes + branches from the store.
+    setTimeout(() => router.refresh(), 1500);
+  };
+
   const payload = (node.payload ?? {}) as Record<string, unknown>;
 
   const isModelCall = node.type === "model_call";
@@ -55,11 +191,18 @@ export function NodeInspector({ node, policyEvent, onClose }: NodeInspectorProps
   const toolOutput = isToolCall ? payload.output : undefined;
   const toolName = isToolCall ? (payload.toolName as string | undefined) : undefined;
 
+  const fileActivity = useMemo(() => extractFileActivity(toolName, toolArgs, toolOutput), [
+    toolName,
+    toolArgs,
+    toolOutput,
+  ]);
+
   const tabs = useMemo<{ id: Tab; label: string }[]>(() => {
     const out: { id: Tab; label: string }[] = [{ id: "summary", label: "Summary" }];
     if (isModelCall && messages?.length) out.push({ id: "prompt", label: "Prompt" });
     if (isModelCall && outputMessage) out.push({ id: "response", label: "Response" });
     if (isToolCall) out.push({ id: "tool_io", label: "Tool I/O" });
+    out.push({ id: "files", label: "Files" });
     if (policyEvent) out.push({ id: "policy", label: "Policy" });
     if (policyEvent) out.push({ id: "audit", label: "Audit" });
     out.push({ id: "raw", label: "JSON" });
@@ -173,18 +316,24 @@ export function NodeInspector({ node, policyEvent, onClose }: NodeInspectorProps
 
             {node.status === "failure" && (
               <div className="border border-[var(--color-failure)]/30 rounded-lg p-3 bg-[var(--color-failure)]/5">
-                <h4 className="text-[var(--color-failure)] font-medium mb-2">Recovery Options</h4>
-                <div className="space-y-2">
-                  <button className="w-full text-left px-3 py-2 rounded border border-[var(--color-branch)]/40 bg-[var(--color-branch)]/5 text-[var(--color-branch)] hover:bg-[var(--color-branch)]/10 transition-colors">
-                    ⑂ Replan within policy
-                  </button>
-                  <button className="w-full text-left px-3 py-2 rounded border border-[var(--color-risky)]/40 bg-[var(--color-risky)]/5 text-[var(--color-risky)] hover:bg-[var(--color-risky)]/10 transition-colors">
-                    ⚙ Suggest policy change
-                  </button>
-                  <button className="w-full text-left px-3 py-2 rounded border border-[var(--color-accent)]/40 bg-[var(--color-accent)]/5 text-[var(--color-accent)] hover:bg-[var(--color-accent)]/10 transition-colors">
-                    ⊙ Rerun in stricter sandbox
-                  </button>
-                </div>
+                <h4 className="text-[var(--color-failure)] font-medium mb-2">Recovery</h4>
+                <button
+                  onClick={handleRestore}
+                  disabled={!runId || recovery.pending}
+                  className="w-full text-left px-3 py-2 rounded border border-[var(--color-accent)]/40 bg-[var(--color-accent)]/5 text-[var(--color-accent)] hover:bg-[var(--color-accent)]/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {recovery.pending ? "Restoring…" : "↺ Restore to previous checkpoint"}
+                </button>
+                {recovery.info && (
+                  <p className="mt-2 text-[10px] text-[var(--color-text-muted)] font-mono break-words">
+                    {recovery.info}
+                  </p>
+                )}
+                {recovery.error && (
+                  <p className="mt-2 text-[10px] text-[var(--color-failure)] font-mono break-words">
+                    {recovery.error}
+                  </p>
+                )}
               </div>
             )}
           </div>
@@ -243,6 +392,17 @@ export function NodeInspector({ node, policyEvent, onClose }: NodeInspectorProps
                 {pretty(toolOutput)}
               </pre>
             </div>
+          </div>
+        )}
+
+        {effectiveTab === "files" && (
+          <div className="h-full min-h-[50vh]">
+            <FileExplorer
+              runId={node.runId}
+              highlightPath={
+                fileActivity && fileActivity.op !== "list" ? fileActivity.path : undefined
+              }
+            />
           </div>
         )}
 

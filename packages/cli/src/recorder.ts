@@ -61,9 +61,33 @@ export class SessionRecorder {
   }
 
   start(input: StartInput): Session {
-    return new Session(this.config, input);
+    return new Session(this.config, { kind: "run", input });
+  }
+
+  /** Resume an existing run on a brand-new branch (recovery flow). */
+  startBranch(input: {
+    runId: string;
+    parentBranchId: string;
+    parentNodeId: string;
+    title: string;
+    userTask: string;
+  }): Session {
+    return new Session(this.config, { kind: "branch", input });
   }
 }
+
+type SessionInit =
+  | { kind: "run"; input: StartInput }
+  | {
+      kind: "branch";
+      input: {
+        runId: string;
+        parentBranchId: string;
+        parentNodeId: string;
+        title: string;
+        userTask: string;
+      };
+    };
 
 export class Session {
   private tracker: RuntimeTracker;
@@ -73,7 +97,7 @@ export class Session {
   readonly runId: string;
   readonly branchId: string;
 
-  constructor(config: RecorderConfig, input: StartInput) {
+  constructor(config: RecorderConfig, init: SessionInit) {
     this.config = config;
     this.tracker = new RuntimeTracker({
       onEvent: (e) => {
@@ -84,7 +108,10 @@ export class Session {
     });
     this.toolWrapper = new ToolWrapper();
 
-    const { runId, branchId } = this.tracker.startRun(input);
+    const { runId, branchId } =
+      init.kind === "run"
+        ? this.tracker.startRun(init.input)
+        : this.tracker.startBranch(init.input);
     this.runId = runId;
     this.branchId = branchId;
   }

@@ -67,6 +67,27 @@ export function ingestTrackerEvents(events: TrackerEvent[]): IngestResult {
         }
         break;
       }
+      case "branch_start": {
+        result.branches.push({
+          id: event.branchId,
+          runId: event.runId,
+          parentBranchId: String(event.attributes.parentBranchId ?? "") || null,
+          forkNodeId: String(event.attributes.parentNodeId ?? "") || null,
+          status: "running",
+          correctionSummary: String(event.attributes.title ?? "") || null,
+          createdAt: event.timestamp,
+        });
+        result.nodes.push(
+          makeNode(
+            event,
+            "branch_start",
+            "branch",
+            `Branch: ${String(event.attributes.title ?? "recovery")}`,
+            String(event.attributes.userTask ?? ""),
+          ),
+        );
+        break;
+      }
       case "model_call_start":
       case "tool_call_start": {
         pendingCalls.set(event.nodeId, { startEvent: event });

@@ -56,7 +56,7 @@ export class NimClient {
     const body: Record<string, unknown> = {
       model: this.config.model,
       messages,
-      max_tokens: this.config.maxTokens ?? 4096,
+      max_tokens: this.config.maxTokens ?? 16384,
     };
     if (options?.tools?.length) {
       body.tools = options.tools;

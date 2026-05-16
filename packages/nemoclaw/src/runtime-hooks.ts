@@ -124,6 +124,39 @@ export class RuntimeTracker {
     return { runId: this.runId, branchId: this.branchId };
   }
 
+  /**
+   * Resume an existing run on a brand-new branch. Used by the recovery flow:
+   * the original run keeps its runId, but a new branch hangs off `parentNodeId`
+   * on `parentBranchId`. Emits a `branch_start` event with that parentage.
+   */
+  startBranch(input: {
+    runId: string;
+    parentBranchId: string;
+    parentNodeId: string;
+    title: string;
+    userTask: string;
+  }): { runId: string; branchId: string } {
+    this.runId = input.runId;
+    this.branchId = `branch_${randomUUID()}`;
+    const nodeId = this.nextNodeId();
+
+    this.emit({
+      type: "branch_start",
+      nodeId,
+      parentNodeId: input.parentNodeId,
+      attributes: {
+        title: input.title,
+        userTask: input.userTask,
+        parentBranchId: input.parentBranchId,
+        parentNodeId: input.parentNodeId,
+        provider: "nvidia",
+        model: "nemotron",
+      },
+    });
+
+    return { runId: this.runId, branchId: this.branchId };
+  }
+
   beforeModelCall(input: BeforeModelCallInput): string {
     const callId = `mc_${randomUUID()}`;
     this.emit({

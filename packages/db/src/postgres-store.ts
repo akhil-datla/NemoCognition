@@ -45,10 +45,15 @@ export class PostgresStore implements Store {
       createdAt: r.createdAt.toISOString(),
       completedAt: isoFromDate(r.completedAt),
       rootBranchId: r.rootBranchId,
+      sandboxRoot: r.sandboxRoot ?? null,
     };
   }
 
   async setRun(run: Run): Promise<void> {
+    // Preserve sandboxRoot on update if the incoming record omits it (e.g.
+    // ingest re-runs don't know about sandboxRoot — only the SessionRunner
+    // does, and it persists separately via setRun afterwards).
+    const sandboxRootValue = run.sandboxRoot ?? null;
     await this.db
       .insert(s.runs)
       .values({
@@ -59,6 +64,7 @@ export class PostgresStore implements Store {
         createdAt: new Date(run.createdAt),
         completedAt: run.completedAt ? new Date(run.completedAt) : null,
         rootBranchId: run.rootBranchId,
+        sandboxRoot: sandboxRootValue,
       })
       .onConflictDoUpdate({
         target: s.runs.id,
@@ -68,6 +74,7 @@ export class PostgresStore implements Store {
           status: run.status,
           completedAt: run.completedAt ? new Date(run.completedAt) : null,
           rootBranchId: run.rootBranchId,
+          ...(run.sandboxRoot !== undefined ? { sandboxRoot: sandboxRootValue } : {}),
         },
       });
   }
@@ -82,6 +89,7 @@ export class PostgresStore implements Store {
       createdAt: r.createdAt.toISOString(),
       completedAt: isoFromDate(r.completedAt),
       rootBranchId: r.rootBranchId,
+      sandboxRoot: r.sandboxRoot ?? null,
     }));
   }
 

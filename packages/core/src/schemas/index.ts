@@ -100,6 +100,7 @@ export const runSchema = z.object({
   createdAt: z.string(),
   completedAt: z.string().nullable(),
   rootBranchId: z.string().min(1),
+  sandboxRoot: z.string().nullable().optional(),
 });
 export type Run = z.infer<typeof runSchema>;
 

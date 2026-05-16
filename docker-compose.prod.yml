@@ -51,6 +51,9 @@ services:
     # the live source. NEMOCLAW_SANDBOX_ROOT pins all tool paths inside it.
     volumes:
       - ./:/workspace
+      # Persistent per-checkpoint snapshot tarballs so Recovery / Restore survives
+      # container restarts.
+      - snapshot_data:/snapshots
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-nemocognition}:${POSTGRES_PASSWORD:-nemocognition_dev}@postgres:5432/${POSTGRES_DB:-nemocognition}
       NODE_ENV: production
@@ -61,6 +64,7 @@ services:
       NIM_MODEL: ${NIM_MODEL:-nvidia/nemotron-3-nano-omni-30b-a3b-reasoning}
       PHOENIX_ENDPOINT: ${PHOENIX_ENDPOINT:-http://phoenix:6006}
       NEMOCLAW_SANDBOX_ROOT: ${NEMOCLAW_SANDBOX_ROOT:-/workspace}
+      NEMOCLAW_SNAPSHOTS_DIR: ${NEMOCLAW_SNAPSHOTS_DIR:-/snapshots}
     depends_on:
       postgres:
         condition: service_healthy
@@ -89,3 +93,4 @@ services:
 volumes:
   pgdata:
   phoenix_data:
+  snapshot_data:

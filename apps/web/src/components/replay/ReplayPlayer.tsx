@@ -205,6 +205,7 @@ export function ReplayPlayer({
             <NodeInspector
               node={selectedNode}
               policyEvent={selectedPolicyEvent}
+              runId={runId}
               onClose={handleCloseInspector}
             />
           </div>

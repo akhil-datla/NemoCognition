@@ -47,6 +47,11 @@ ENV HOSTNAME=0.0.0.0
 COPY --from=builder --chown=node:node /workspace/apps/web/.next/standalone ./
 COPY --from=builder --chown=node:node /workspace/apps/web/.next/static ./apps/web/.next/static
 
+# Snapshot tarballs are written here. Pre-create so the named volume inherits
+# node ownership; otherwise the volume's default root:root permissions would
+# block snapshot creation under USER node.
+RUN mkdir -p /snapshots && chown -R node:node /snapshots
+
 EXPOSE 3000
 USER node
 CMD ["node", "apps/web/server.js"]

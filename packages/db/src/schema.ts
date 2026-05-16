@@ -16,6 +16,7 @@ export const runs = pgTable("runs", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   completedAt: timestamp("completed_at", { withTimezone: true }),
   rootBranchId: text("root_branch_id").notNull(),
+  sandboxRoot: text("sandbox_root"),
 });
 
 export const executionNodes = pgTable("execution_nodes", {

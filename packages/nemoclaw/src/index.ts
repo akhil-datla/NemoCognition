@@ -8,6 +8,7 @@ export {
   prefixMatcher,
   regexMatcher,
   DEFAULT_POLICY,
+  STRICT_POLICY,
   type PolicyConfig,
   type PolicyDecision,
   type PolicyEvaluation,

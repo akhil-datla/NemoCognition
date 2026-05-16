@@ -49,6 +49,7 @@ function makeRunner(opts: { maxIterations?: number; taskTitle?: string } = {}) {
       nimChat: mockNimChat,
       sandboxRoot,
       maxIterations: opts.maxIterations,
+      disableSnapshots: true,
     },
     opts.taskTitle ?? "test task",
     opts.taskTitle ?? "test task",
@@ -208,6 +209,67 @@ describe("SessionRunner agent loop", () => {
     expect(decisions.length).toBe(1);
     expect(decisions[0].decision).toBe("allow");
     expect(decisions[0].actionType).toBe("file_read");
+  });
+
+  it("emits a checkpoint before each allowed tool call capturing the message history", async () => {
+    mockNimChat
+      .mockResolvedValueOnce(toolCallMessage("read_file", { path: "allowed.md" }))
+      .mockResolvedValueOnce(finalMessage("done"));
+    const runner = makeRunner();
+    const events: RunnerEvent[] = [];
+    runner.subscribe((e) => events.push(e));
+
+    await runner.run("read allowed.md");
+
+    const types = events.map((e) => e.event.type);
+    const cpIdx = types.indexOf("checkpoint");
+    const toolStartIdx = types.indexOf("tool_call_start");
+    expect(cpIdx).toBeGreaterThanOrEqual(0);
+    expect(toolStartIdx).toBeGreaterThan(cpIdx);
+
+    const cpEvent = events[cpIdx].event as unknown as {
+      attributes: {
+        checkpointId: string;
+        memory: { iteration: number; nextTool: string; nextArgs: Record<string, unknown>; messages: Array<{ role: string }> };
+      };
+    };
+    expect(cpEvent.attributes.checkpointId).toMatch(/^cp_/);
+    expect(cpEvent.attributes.memory.iteration).toBe(0);
+    expect(cpEvent.attributes.memory.nextTool).toBe("read_file");
+    expect(cpEvent.attributes.memory.nextArgs).toEqual({ path: "allowed.md" });
+    const roles = cpEvent.attributes.memory.messages.map((m) => m.role);
+    expect(roles).toEqual(["system", "user", "assistant"]);
+  });
+
+  it("does not emit a checkpoint for denied tool calls", async () => {
+    mockNimChat
+      .mockResolvedValueOnce(toolCallMessage("write_file", { path: ".env", content: "x" }))
+      .mockResolvedValueOnce(finalMessage("stopped"));
+    const runner = makeRunner();
+    const events: RunnerEvent[] = [];
+    runner.subscribe((e) => events.push(e));
+
+    await runner.run("try .env");
+
+    expect(events.map((e) => e.event.type)).not.toContain("checkpoint");
+  });
+
+  it("persists checkpoints to the store on completion", async () => {
+    mockNimChat
+      .mockResolvedValueOnce(toolCallMessage("read_file", { path: "allowed.md" }))
+      .mockResolvedValueOnce(finalMessage("done"));
+    const runner = makeRunner();
+    await runner.run("persist cp");
+
+    expect(store.checkpoints.size).toBe(1);
+    const [cp] = [...store.checkpoints.values()];
+    expect(cp.runId).toBe(runner.runId);
+    expect(cp.branchId).toBe(runner.branchId);
+    expect(cp.memoryJson).toMatchObject({
+      iteration: 0,
+      nextTool: "read_file",
+      nextArgs: { path: "allowed.md" },
+    });
   });
 
   it("seq is monotonically increasing", async () => {
