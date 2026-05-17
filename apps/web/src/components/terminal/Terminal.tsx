@@ -58,10 +58,10 @@ const NEMOCOGNITION_BANNER = ` _   _                       ____                 
 
 const WELCOME: { type: TerminalLine["type"]; text: string }[] = [
   { type: "system", text: "  Commands" },
-  { type: "system", text: "    - nemoclaw run <task>    Start a new NemoClaw session" },
-  { type: "system", text: "    - nemoclaw list          Show all sessions" },
-  { type: "system", text: "    - nemoclaw replay <id>   Open replay player for a session" },
-  { type: "system", text: "    - nemoclaw demo          Load demo session with policy failure" },
+  { type: "system", text: "    - nemocog run <task>     Start a new NemoCognition session" },
+  { type: "system", text: "    - nemocog list           Show all sessions" },
+  { type: "system", text: "    - nemocog replay <id>    Open replay player for a session" },
+  { type: "system", text: "    - nemocog demo           Load demo session with policy failure" },
   { type: "system", text: "    - help                   Show this message" },
   { type: "system", text: "    - clear                  Clear terminal" },
   { type: "system", text: "" },
@@ -104,7 +104,7 @@ export function Terminal() {
         return;
       }
 
-      if (command === "nemoclaw") {
+      if (command === "nemocog" || command === "nemoclaw" /* legacy alias */) {
         const sub = parts[1]?.toLowerCase();
 
         if (sub === "demo") {
@@ -136,7 +136,7 @@ export function Terminal() {
         if (sub === "run" && parts.slice(2).length > 0) {
           const task = parts.slice(2).join(" ");
           addLines([
-            { type: "system", text: `Starting NemoClaw session...` },
+            { type: "system", text: `Starting NemoCognition session...` },
             { type: "system", text: `  Task: ${task}` },
             { type: "system", text: `  Environment: NVIDIA Brev` },
             { type: "system", text: `  Model: NVIDIA Nemotron via NIM` },
@@ -212,7 +212,7 @@ export function Terminal() {
           return;
         }
 
-        addLines([{ type: "error", text: "Usage: nemoclaw <run|list|replay|demo> [args]" }]);
+        addLines([{ type: "error", text: "Usage: nemocog <run|list|replay|demo> [args]" }]);
         return;
       }
 
@@ -290,7 +290,7 @@ export function Terminal() {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           className="flex-1 bg-transparent text-[var(--color-text)] font-mono text-[13px] outline-none placeholder:text-[var(--color-text-subtle)]"
-          placeholder="nemoclaw run <task>  ·  type 'help' for commands"
+          placeholder="nemocog run <task>  ·  type 'help' for commands"
           autoFocus
         />
       </form>

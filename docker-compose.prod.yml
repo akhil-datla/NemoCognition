@@ -65,6 +65,10 @@ services:
       NIM_MODEL: ${NIM_MODEL:-nvidia/nemotron-3-nano-omni-30b-a3b-reasoning}
       PHOENIX_ENDPOINT: ${PHOENIX_ENDPOINT:-http://phoenix:6006}
       NEMOCLAW_SANDBOX_ROOT: ${NEMOCLAW_SANDBOX_ROOT:-/workspace}
+      # Pin checkpoint tars to the bind-mounted host volume so they survive
+      # container restarts (otherwise tars live on the container's ephemeral
+      # fs and the Codebase tab 404s after any rebuild).
+      CHECKPOINT_STORAGE_ROOT: ${CHECKPOINT_STORAGE_ROOT:-/workspace/checkpoints}
     depends_on:
       postgres:
         condition: service_healthy

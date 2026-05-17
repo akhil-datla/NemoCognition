@@ -95,19 +95,32 @@ export async function GET(
     }
   }
 
-  // Filter out OpenClaw / OpenShell internal state files. The agent itself
-  // only writes under `workspace/` inside the sandbox — everything else
-  // (agents/sessions, trajectories, rebuild-manifest, credentials, etc.)
-  // is OpenClaw housekeeping that mutates on every turn but doesn't
-  // represent a user-visible agent action.
-  const AGENT_WORKSPACE_PREFIXES = ["workspace/", "sandbox/.openclaw/workspace/"];
-  diffFiles = diffFiles.filter((f) =>
-    AGENT_WORKSPACE_PREFIXES.some((prefix) => f.path.startsWith(prefix)),
-  );
+  // Filter out OpenClaw / NemoClaw / OpenShell internal state files. These
+  // top-level prefixes appear in every real NemoClaw sandbox snapshot and
+  // mutate on every agent turn but don't represent user-visible agent
+  // actions. Use a *blacklist* (exclude these) instead of a whitelist (only
+  // workspace/) so the Codebase tab also works for snapshots taken outside
+  // a NemoClaw sandbox — e.g. the in-process web-terminal AgentLoop where
+  // the sandbox is the repo root and the agent can write anywhere.
+  const OPENCLAW_HOUSEKEEPING_PREFIXES = [
+    "agents/",
+    "canvas/",
+    "credentials/",
+    "cron/",
+    "devices/",
+    "extensions/",
+    "hooks/",
+    "identity/",
+    "memory/",
+    "skills/",
+    "telegram/",
+    "rebuild-manifest.json",
+  ];
+  const isHousekeeping = (p: string) =>
+    OPENCLAW_HOUSEKEEPING_PREFIXES.some((prefix) => p.startsWith(prefix));
+  diffFiles = diffFiles.filter((f) => !isHousekeeping(f.path));
   for (const k of Object.keys(changeKind)) {
-    if (!AGENT_WORKSPACE_PREFIXES.some((p) => k.startsWith(p))) {
-      delete changeKind[k];
-    }
+    if (isHousekeeping(k)) delete changeKind[k];
   }
 
   return NextResponse.json({

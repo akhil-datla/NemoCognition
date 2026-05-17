@@ -97,7 +97,7 @@ export function buildAgentTools(sandboxRoot: string): AgentTool[] {
     {
       name: "write_file",
       description:
-        "Write UTF-8 content to a file under the repo root. Overwrites any existing file. Creates parent directories as needed. Max 1MB.",
+        "Write UTF-8 content to a file under the workspace/ directory. The path must start with 'workspace/' (e.g. workspace/hello.py). Overwrites any existing file. Creates parent directories as needed. Max 1MB.",
       actionType: "file_write",
       parameters: {
         type: "object",
@@ -138,7 +138,31 @@ export function buildAgentTools(sandboxRoot: string): AgentTool[] {
       resourceFromArgs: (a) => String(a.command ?? ""),
       execute: async (a) => {
         const command = String(a.command ?? "");
-        return runBash(command, sandboxRoot);
+        const result = await runBash(command, sandboxRoot);
+        // Surface non-zero shell exits / timeouts as tool errors so the
+        // ToolWrapper records errorClass + outer exitCode = 1, the trace
+        // ingestor marks the node "failure" (red), and classifyFailure can
+        // match the "permission denied" / "command failed" / "timeout"
+        // patterns. Returning a structured BashResult silently hid these
+        // failures behind a green-success node. The stdout/stderr/exitCode
+        // are still attached to the thrown Error's message so the agent
+        // sees the full context in its tool-result message.
+        if (result.exitCode !== 0 || result.timedOut) {
+          const summary = (result.stderr || result.stdout || "(no output)")
+            .trim()
+            .slice(0, 800);
+          const cls = result.timedOut
+            ? "BashTimeout"
+            : /permission denied/i.test(result.stderr)
+              ? "PermissionDenied"
+              : "BashError";
+          const err = new Error(
+            `${cls}: exit ${result.exitCode}: ${summary}`,
+          );
+          (err as Error & { bashResult?: BashResult }).bashResult = result;
+          throw err;
+        }
+        return result;
       },
     },
   ];
@@ -154,11 +178,15 @@ interface BashResult {
 
 function runBash(command: string, cwd: string): Promise<BashResult> {
   return new Promise((resolve) => {
-    const child = spawn("bash", ["-c", command], { cwd, env: process.env });
+    // Use `sh` not `bash` — works on both alpine (no bash) and debian-based
+    // containers. POSIX `sh` is enough for the simple commands the agent
+    // issues (echo, redirection, mkdir, ls, find, etc.).
+    const child = spawn("sh", ["-c", command], { cwd, env: process.env });
     let stdout = "";
     let stderr = "";
     let truncated = false;
     let timedOut = false;
+    let settled = false;
 
     const cap = (current: string, chunk: Buffer): string => {
       const next = current + chunk.toString("utf8");
@@ -169,20 +197,40 @@ function runBash(command: string, cwd: string): Promise<BashResult> {
       return next;
     };
 
+    const finish = (result: BashResult) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(result);
+    };
+
     const timer = setTimeout(() => {
       timedOut = true;
-      child.kill("SIGKILL");
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        /* spawn never started */
+      }
+      finish({ stdout, stderr, exitCode: 124, truncated, timedOut: true });
     }, BASH_TIMEOUT_MS);
 
-    child.stdout.on("data", (d: Buffer) => {
+    child.stdout?.on("data", (d: Buffer) => {
       stdout = cap(stdout, d);
     });
-    child.stderr.on("data", (d: Buffer) => {
+    child.stderr?.on("data", (d: Buffer) => {
       stderr = cap(stderr, d);
     });
+
+    // CRITICAL: without an `error` handler, spawn-failure (e.g. shell not on
+    // PATH, cwd doesn't exist) emits an unhandled 'error' event and no
+    // 'close' event, leaving the promise dangling forever. The agent loop
+    // then hangs on a single tool call. Always settle.
+    child.on("error", (err) => {
+      stderr = (stderr ? stderr + "\n" : "") + `spawn error: ${err.message}`;
+      finish({ stdout, stderr, exitCode: 127, truncated, timedOut });
+    });
     child.on("close", (code) => {
-      clearTimeout(timer);
-      resolve({
+      finish({
         stdout,
         stderr,
         exitCode: timedOut ? 124 : code ?? -1,

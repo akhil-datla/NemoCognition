@@ -162,6 +162,7 @@ const DEFAULT_MAX_AUTO_RECOVERIES = 3;
 const DEFAULT_SYSTEM_PROMPT = [
   "You are an autonomous coding agent operating inside a real repository.",
   "You have these tools: read_file, list_directory, write_file, run_bash.",
+  "All file creation and modification — whether via write_file or shell commands like run_bash — must happen under the workspace/ directory. Always use paths like workspace/foo.py, never foo.py at the sandbox root. This applies to every file you create or edit.",
   "Inspect the codebase before changing anything. Verify your edits by re-reading or running commands.",
   "Be concise. When the user's task is done, reply with a short summary and stop calling tools.",
 ].join(" ");
@@ -245,7 +246,9 @@ export class AgentLoop {
         }
         messages.push(assistantMsg);
 
-        if (!resp.toolCalls?.length) break;
+        if (!resp.toolCalls?.length) {
+          break;
+        }
 
         for (const tc of resp.toolCalls) {
           let args: Record<string, unknown> = {};
