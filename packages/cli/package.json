@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "zod": "^3.24.0",
-    "tar": "^7.5.15",
+    "tar": "^7.5.21",
     "@nemocognition/core": "workspace:*",
     "@nemocognition/tracing": "workspace:*",
     "@nemocognition/nemoclaw": "workspace:*",
